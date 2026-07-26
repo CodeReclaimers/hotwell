@@ -15,7 +15,13 @@ import yaml
 from hotwell import steam_properties as sp
 from hotwell.components.condenser import Condenser, CondenserParams
 from hotwell.components.deaerator import Deaerator, DeaeratorParams
-from hotwell.components.drum import DrumOutputs, TwoStateDrum, TwoStateDrumParams
+from hotwell.components.drum import (
+    AstromBellDrum,
+    AstromBellDrumParams,
+    DrumOutputs,
+    TwoStateDrum,
+    TwoStateDrumParams,
+)
 from hotwell.components.loads import LoadBlock, Loads
 from hotwell.components.pumps import G, PathFlowResult, PumpParams, PumpUnit, solve_path_flow
 from hotwell.components.turbine import RotorParams, Turbine, TurbineParams
@@ -103,7 +109,15 @@ class Plant:
             "fp2": PumpUnit("fp2", fp, reg, 0.0),
         }
 
-        self.drum = TwoStateDrum(TwoStateDrumParams(**cfg["drum"]))
+        dr = cfg["drum"]
+        model = dr.get("model", "two_state")
+        if model == "two_state":
+            self.drum: TwoStateDrum | AstromBellDrum = TwoStateDrum(
+                TwoStateDrumParams(**dr["two_state"]))
+        elif model == "astrom_bell":
+            self.drum = AstromBellDrum(AstromBellDrumParams(**dr["astrom_bell"]))
+        else:
+            raise ValueError(f"unknown drum model: {model!r}")
         self.drum.register_states(reg)
 
         self.turbine = Turbine(TurbineParams(**cfg["turbine"]),
@@ -149,6 +163,24 @@ class Plant:
             self._p_hyd_rated[name] = rho * G * h_rated * p.q_rated
 
         self.n_states = reg.n
+
+        # design-point flows (used by steady init and the AB drum's V_sd0)
+        if isinstance(self.drum, AstromBellDrum):
+            p0, _, _, m_fw_r, q_fire_r = self.design_point()
+            self.drum.finalize_design(p0, m_fw_r, q_fire_r, self.deaerator.h_fw)
+
+    def design_point(self) -> tuple[float, float, float, float, float]:
+        """Rated-condition flows at design pressure: (p0 [Pa], m_turb, m_peg,
+        m_fw [kg/s], q_fire [W]). Same construction the steady init uses."""
+        p0 = self.cfg["design"]["p_drum"]
+        tp = self.turbine.tp
+        m_turb = tp.k_t * tp.x_rated * p0
+        p_cond = self.condenser.p_cond(m_turb, 0.0)
+        h_c = sp.hf_t(sp.tsat_lowp(p_cond))
+        m_peg = self.deaerator.m_pegging(m_turb, h_c, p0, sp.h_g(p0))
+        m_fw = m_turb + m_peg
+        q_fire = m_fw * (sp.h_g(p0) - self.deaerator.h_fw)
+        return p0, m_turb, m_peg, m_fw, q_fire
 
     @classmethod
     def from_yaml(cls, path: str | Path | None = None) -> Plant:
@@ -241,7 +273,7 @@ class Plant:
         """Total tracked water inventory [kg] (drum + hotwell + DA + chest +
         fixed piping holdup)."""
         yl = y.tolist() if isinstance(y, np.ndarray) else list(y)
-        return (yl[self.drum.i_m] + yl[self.condenser.i_m] + yl[self.deaerator.i_m]
+        return (self.drum.mass(yl) + yl[self.condenser.i_m] + yl[self.deaerator.i_m]
                 + self.turbine.chest_holdup(yl) + self.piping_holdup)
 
     def _pump_current(self, name: str, s: float, q: float, head: float,

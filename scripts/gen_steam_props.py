@@ -266,6 +266,21 @@ def u_g(p: float) -> float:
 
 # d/dp derivatives (chain rule through z = ln(p/P_REF): d/dp = (d/dz)/p)
 
+def dtsat_dp(p: float) -> float:
+    """d(Tsat)/dp [K/Pa] (3–12 MPa)."""
+    return _horner(_D_TSAT, log(p / P_REF)) / p
+
+
+def dh_f_dp(p: float) -> float:
+    """d(h_f)/dp [J/kg/Pa] (3–12 MPa)."""
+    return _horner(_D_HF, log(p / P_REF)) / p
+
+
+def dh_g_dp(p: float) -> float:
+    """d(h_g)/dp [J/kg/Pa] (3–12 MPa)."""
+    return _horner(_D_HG, log(p / P_REF)) / p
+
+
 def dv_f_dp(p: float) -> float:
     """d(v_f)/dp [m3/kg/Pa] (3–12 MPa)."""
     return _horner(_D_VF, log(p / P_REF)) / p

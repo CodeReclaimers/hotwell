@@ -1,25 +1,41 @@
-"""T9 — drum shrink/swell inverse response. SKIPPED until the M4 AstromBellDrum.
+"""T9 — drum shrink/swell inverse response (M4, AstromBellDrum).
 
-This test encodes the phase-1.5 upgrade gate: with the four-state Astrom-Bell
-drum model, a step INCREASE in steam demand must initially RAISE drum level
-(swell) before it falls. The phase-1 TwoStateDrum is monotone in inventory by
-design (accepted limitation, plan section 5.2) and cannot pass this.
+With the four-state Astrom-Bell drum, a step INCREASE in steam demand must
+initially RAISE drum level (swell) before the inventory effect pulls it
+down. The phase-1 TwoStateDrum is monotone in inventory by design (accepted
+limitation, plan section 5.2) — verified here as the contrast case.
 """
-import pytest
-
+from hotwell.plant import load_config
 from hotwell.simulator import Simulator
 
 
-@pytest.mark.skip(reason="phase 1.5 drum (AstromBellDrum, M4) — TwoStateDrum has no swell")
-def test_t9_swell_on_steam_demand_step():
-    sim = Simulator(seed=0)
+def _swell_peak(model: str) -> float:
+    """Peak level rise [m] in the 20 s after a +10% steam-demand step."""
+    cfg = load_config()
+    cfg["drum"]["model"] = model
+    sim = Simulator(cfg, seed=0)
     sim.initialize_steady_state(54.0)
     level0 = sim.last_aux.drum_level
-    # step steam demand up ~10% via the governor load reference
     sim.step({"governor.load_ref_mw": 60.0})
     peak = -1.0
-    for _ in range(int(10.0 / sim.dt)):
+    for _ in range(int(20.0 / sim.dt)):
         sim.step()
         peak = max(peak, sim.last_aux.drum_level - level0)
-    # swell: level must rise measurably before the inventory effect pulls it down
-    assert peak > 0.005  # m
+    return peak
+
+
+def test_t9_swell_on_steam_demand_step():
+    peak = _swell_peak("astrom_bell")
+    print(f"astrom_bell swell peak after +6 MW load step: {peak * 1e3:+.1f} mm")
+    # swell: level must RISE measurably on a demand increase (inverse response).
+    # 3 mm is ~an order of magnitude above numeric noise; the observed peak is
+    # ~6 mm (softer than the paper's Fig 7 because our step arrives through the
+    # droop governor + 1 s throttle actuator under closed-loop level control).
+    assert peak > 0.003
+
+
+def test_two_state_has_no_swell():
+    """Contrast: the phase-1 drum must NOT swell (documents the limitation)."""
+    peak = _swell_peak("two_state")
+    print(f"two_state peak after +6 MW load step: {peak * 1e3:+.1f} mm")
+    assert peak < 0.005

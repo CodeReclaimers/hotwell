@@ -2,10 +2,14 @@
 
 ## Status summary
 
-**M3 complete — phase-1 finish line reached.** All acceptance tests pass (T1–T8,
-T10–T12; T9 committed as skipped, gating the optional M4 drum). The three canonical
-scenarios run, hit their timing targets, and produce the standard plot set. M4 not
-started (requires explicit go-ahead per plan section 12).
+**M4 complete** (on Alan's explicit go-ahead, 2026-07-26; D5/D15 ratified). The
+AstromBellDrum (Astrom & Bell, Automatica 36 (2000), fourth-order) is selectable via
+`drum.model: astrom_bell`; **T9 is un-skipped and passes** (swell +5.9 mm on a +6 MW
+steam-demand step; two-state contrast case confirms monotone). Three-element feedwater
+(steam-flow feedforward + feed-flow trim) is behind `control.drum_level.three_element`.
+Comparison plot: `scripts/compare_drums.py` → `out/drum_comparison_load_step.png`.
+The phase-1 canonical scenarios and their acceptance tests still run on the two_state
+default and all pass unchanged.
 
 ## How to run
 
@@ -33,10 +37,13 @@ use the project venv.
 | T6 droop | **pass** | Δf −0.2700 Hz vs analytic −0.2777 Hz on measured ΔP_e = 5.553 MW → 97.2% (gate ±5%); no alarms |
 | T7 casualty (unrecovered) | **pass** | MFT via DRUM_LVL_LOLO; first protective trip FP1_SUCTION at +92.65 s (window 45–120 s); first-out = CP1_TRIP:overload |
 | T8 casualty (recovered) | **pass** | zero trips; worst FP NPSH margin 2.30 m; levels re-established well inside +300 s (band by +78 s) |
-| T9 inverse response | **skipped** | committed skip marker, gates the M4 drum |
-| T11 performance | **pass** | 1 h simulated in 11.0 s wall (328× real time; budget 60 s) |
+| T9 inverse response | **pass** (M4) | AB drum swell +5.9 mm on +6 MW demand step; two-state contrast −0.0 mm (monotone) |
+| T11 performance | **pass** | 1 h simulated in 21.4 s wall (169× real time; budget 60 s — see D19 for why this doubled in M4) |
 
-Suite: `31 passed, 1 skipped` (~23 s); ruff clean.
+Suite: `37 passed` (no skips; ~52 s); ruff clean. M4 additions: AB steady hold
+(residual 7.5e-16, 300 s drift 0.0000%, audits exact on the 51.5 t AB inventory),
+design-point consistency, three-element behavior (load-step level peak 16.4 mm
+single-element → 6.2 mm three-element on the two-state drum).
 
 Property fit accuracy (max relative error vs source points, limit 0.5%): worst 0.051 %
 (v_f(T)); all others ≤ 0.041 %. Full per-function report in the generated module
@@ -127,7 +134,7 @@ Sizing-rule compliance (achieved):
   lifts safeties on a 12% demand loss is not believable; the tighter loop caps the
   excursion at 8.47 MPa (DRUM_P_HI alarm only, transient).
 
-## Decisions taken under ask-vs-decide
+## Decisions taken under ask-vs-decide (M4: D17–D19 at the end)
 
 - **D1 — property source**: typed-in standard steam-table points (Moran/Shapiro,
   Cengel/Boles tabulations of IAPWS) rather than ad-hoc CoolProp at generation time —
@@ -202,6 +209,41 @@ Sizing-rule compliance (achieved):
   (restartable) unless a pump-trip latch remains. Scenario-injected pump trips carry no
   engine latch and always clear to `stopped` on reset. Not exercised by the canonical
   scenarios; unit-level behavior only in phase 1.
+- **D17 — AstromBellDrum parameter provenance and scaling.** Equation set transcribed
+  from the paper directly (eq. 24 with all e-coefficients, eqs. 12/26 void fraction,
+  eq. 15 circulation, eqs. 19–20 level, section 4.8 equilibria) — fetched and read, not
+  reproduced from memory. Parameters: the paper's section 5.1 P16-G16 table (V_d 40,
+  V_r 37, V_dc 11 m³, A_d 20 m², m_t 300 t, m_r 160 t, k 25, β 0.3, T_d 12 s), volumes/
+  areas/masses × **scale = 0.968** = our rated drum draw (87.12 kg/s) / the paper
+  plant's estimated full-load steam flow (~90 kg/s, from Fig 3's 180 MW heat-flow axis
+  at h_s − h_fw ≈ 2.0 MJ/kg with ~200 degC feed). Values the paper leaves implicit:
+  metal C_p = 550 J/(kg·K) (validated against Table 2's m_t·C_p·∂t_s/∂p ≈ 1410 J/Pa at
+  8.5 MPa, within 3%); drum metal m_d = 100 t (inferred: m_t − m_r = 140 t covers drum +
+  downcomers; its e42 term is small); A_dc = 0.2774 m² calibrated with the paper's k=25
+  so q_dc ≈ 1300 kg/s at our design point — giving riser-exit quality α_r = 0.108,
+  squarely in the paper's high-load range (Fig 7, ~0.1). V_sd0 = 19.14 m³ is *derived*
+  at construction from the section-4.8 V_sd equilibrium with V_sd,nom = 4.8 m³ (paper
+  Fig 4 shows ~5) — large because our feed is far more subcooled than the paper
+  plant's. Level reference = half-drum below-surface volume. A design-point test locks
+  these derivations.
+- **D18 — single-element level control is unstable with the AB drum + our cold feed.**
+  Cutting feed reduces in-drum condensation, so the sub-surface steam volume grows
+  (−0.166 m³ per sustained kg/s of feed) and level RISES — a positive feedback through
+  the level loop that ran load_step into DRUM_LVL_HIHI/turbine trip. The short-term
+  static gain from feed to level is inverted (~120 s break-even), so the M4 pairing is
+  AB + three-element feedwater with a deliberately SLOW trim (kp 15 kg/s/m, ki 0.15,
+  ±25 kg/s; an aggressive trim of kp 60/ki 1.5 was demonstrated unstable, peak 719 mm).
+  Result: load_step peak +65 mm, no alarms, converging (~+13 mm at t=1800). This is the
+  simulation reproducing WHY three-element control exists; the panel phase should treat
+  single-element + AB as an operator-visible degraded mode, not a default.
+- **D19 — path-flow solver must converge on step size, not residual.** The original
+  solve exited on a loose pressure-residual with warm-start-dependent iteration count;
+  outer finite differences (scipy hybr's Jacobian) then saw iteration noise instead of
+  smooth flow derivatives — found as a near-null fw-valve column stalling the AB
+  steady-state root at off-design loads. Now converges to |Δq| < 1e-13·q_hi. Cost:
+  T11 went from 11.0 → 21.4 s per simulated hour (still 2.8× inside budget); benefit:
+  steady-state residuals back to ~3e-16 for both drum models, and any future
+  gradient-based consumer (MPC, trim optimization) gets a smooth plant function.
 - **D10 — turbine trip = generator breaker opens = bus dead.** Single generator,
   islanded, no station-service alternative is modeled, so a turbine trip deenergizes
   both load blocks AND the pump motors (pumps trip on "bus_dead"). This is what makes
@@ -211,9 +253,8 @@ Sizing-rule compliance (achieved):
 
 ## Known issues / rough edges
 
-- The steady-state root residual is ~2e-8 (scaled) after the M3 feed-pump resize vs
-  ~5e-16 before — hybr stops within xtol at a slightly flatter point. Well inside the
-  T2 gate (1e-7); cosmetic.
+- ~~Steady-state root residual ~2e-8 after the M3 feed-pump resize~~ — resolved by the
+  D19 solver-smoothness fix; back to ~3e-16.
 - CP NPSH margin at rated is 1.00 m (no protection entry exists for CP suction, per
   plan table). If a hotwell-draining casualty is added later, consider a CP_SUCTION
   table entry.
@@ -246,3 +287,7 @@ table's ≈180 MW) and D15 (T6 evaluated against measured ΔP_e).
 - Frequency instrument range is 50–70 Hz so the 110% overspeed setpoint (66 Hz) is
   observable — a 55–65 Hz gauge would have clamped below the trip point (found during
   design; keep in mind when drawing gauge faces).
+- M4: `drum.model` and `control.drum_level.three_element` are config switches the
+  panel could expose as "plant fidelity" options; with the AB drum, single-element
+  level control is a realistic casualty-inducing configuration (D18) — potentially a
+  deliberate training scenario later, not a bug.

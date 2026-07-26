@@ -7,11 +7,34 @@ design:
   f0: 60.0                # Hz
 
 drum:
-  v_total: 28.0           # m3 — drum+riser fluid volume
-  v_liq_nwl: 14.0         # m3 — liquid volume at normal water level
-  a_waterplane: 16.0      # m2 — effective waterplane (vertical-cylinder equiv.)
-  p_min: 3.2e+6           # Pa — closure clamp (property-fit range guard)
-  p_max: 11.8e+6          # Pa
+  model: two_state        # two_state | astrom_bell (M4)
+  two_state:
+    v_total: 28.0         # m3 — drum+riser fluid volume
+    v_liq_nwl: 14.0       # m3 — liquid volume at normal water level
+    a_waterplane: 16.0    # m2 — effective waterplane (vertical-cylinder equiv.)
+    p_min: 3.2e+6         # Pa — closure clamp (property-fit range guard)
+    p_max: 11.8e+6        # Pa
+  astrom_bell:            # Astrom & Bell (Automatica 36, 2000) P16-G16 table
+    # scale = our rated drum steam draw / paper plant's est. full-load steam
+    # flow = 87.12 / 90 (Q~180 MW at hs-hf~2.0 MJ/kg, paper Fig 3) — see HANDOFF
+    scale: 0.968
+    v_d: 40.0             # m3 (paper section 5.1, pre-scale)
+    v_r: 37.0             # m3
+    v_dc: 11.0            # m3
+    a_d: 20.0             # m2 — drum wet area at operating level
+    m_t: 300.0e+3         # kg — total metal mass
+    m_r: 160.0e+3         # kg — riser metal mass
+    m_d: 100.0e+3         # kg — drum metal (inferred: m_t - m_r = 140 t for
+                          #      drum+downcomers; most is drum shell — HANDOFF)
+    cp_metal: 550.0       # J/(kg*K) — consistent with paper Table 2 (~1410 J/Pa
+                          #      for m_t*Cp*dts/dp at 8.5 MPa, within 3%)
+    k_friction: 25.0      # [-] (paper value)
+    a_dc: 0.2774          # m2 — calibrated so q_dc ~ 1300 kg/s at our design
+                          #      point (alpha_r ~ 0.106, paper high-load range)
+    beta: 0.3             # [-] (paper value)
+    t_d: 12.0             # s — steam residence time in drum (paper value)
+    vsd_nom: 4.8          # m3 — nominal steam volume under level (paper Fig 4
+                          #      shows ~5 m3 at medium load), pre-scale
 
 turbine:
   # k_t = P_rated/(x_rated * w_spec * p_drum) so the droop law, rated flow,
@@ -105,6 +128,24 @@ control:
     lo: 0.0
     hi: 1.0
     t_track: 15.0
+    three_element: false  # M4 option: steam-flow feedforward + feed-flow trim
+  drum_level_3e:          # gains used only when three_element: true
+    trim:                 # PV: sensed drum level [m]; output: flow trim [kg/s]
+      # Deliberately slow: with our very subcooled feed (DA at 0.15 MPa), the
+      # AB drum's feed->condensation->steam-volume coupling inverts the
+      # short-term level response to feed changes (~2 min break-even), so an
+      # aggressive trim destabilizes; feedforward carries the fast work.
+      kp: 15.0
+      ki: 0.15
+      lo: -25.0
+      hi: 25.0
+      t_track: 10.0
+    flow:                 # PV: sensed feed flow [kg/s]; output: fw valve cmd
+      kp: 0.004
+      ki: 0.02
+      lo: 0.0
+      hi: 1.0
+      t_track: 5.0
   drum_pressure:          # PV: sensed drum pressure [Pa]; output: firing cmd
     kp: 1.8e-7
     ki: 3.0e-9

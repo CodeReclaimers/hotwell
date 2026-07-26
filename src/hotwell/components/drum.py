@@ -45,6 +45,24 @@ class DrumBoiler(ABC):
         feed enthalpy; m_s [kg/s] total steam drawn (turbine + auxiliary + relief).
         """
 
+    @abstractmethod
+    def mass(self, y: list[float]) -> float:
+        """Total drum-system fluid mass [kg] (for the mass audit)."""
+
+    @abstractmethod
+    def steady_init(self, y: np.ndarray, p0: float, m_fw: float,
+                    q_fire: float) -> None:
+        """Write this model's equilibrium states at (p0, rated flows) into y —
+        the analytic guess polished by the steady-state root solve."""
+
+    @abstractmethod
+    def state_indices(self) -> list[int]:
+        """Registered state indices, for the steady-state residual rows."""
+
+    @abstractmethod
+    def deriv_scales(self) -> list[float]:
+        """Characteristic derivative magnitudes per state (residual scaling)."""
+
 
 @dataclass(frozen=True)
 class TwoStateDrumParams:
@@ -140,3 +158,232 @@ class TwoStateDrum(DrumBoiler):
                     q_fire: float, m_fw: float, h_fw: float, m_s: float) -> None:
         ydot[self.i_m] = m_fw - m_s
         ydot[self.i_u] = q_fire + m_fw * h_fw - m_s * out.h_steam
+
+    def mass(self, y: list[float]) -> float:
+        return y[self.i_m]
+
+    def steady_init(self, y: np.ndarray, p0: float, m_fw: float,
+                    q_fire: float) -> None:
+        from hotwell import steam_properties as sp
+        v_liq = self.p.v_liq_nwl
+        v_stm = self.p.v_total - v_liq
+        m = v_liq / sp.v_f(p0) + v_stm / sp.v_g(p0)
+        x_q = (v_stm / sp.v_g(p0)) / m
+        y[self.i_m] = m
+        y[self.i_u] = m * (sp.u_f(p0) + x_q * (sp.u_g(p0) - sp.u_f(p0)))
+
+    def state_indices(self) -> list[int]:
+        return [self.i_m, self.i_u]
+
+    def deriv_scales(self) -> list[float]:
+        return [1.0, 1e6]  # kg/s, W
+
+
+G = 9.80665  # m/s^2
+
+
+@dataclass(frozen=True)
+class AstromBellDrumParams:
+    """Astrom & Bell (Automatica 36, 2000) fourth-order drum model parameters.
+
+    Geometry/masses are the paper's P16-G16 values and are multiplied by
+    `scale` (the steam-flow ratio between our design point and the paper
+    plant's estimated full-load steam flow) at construction — see HANDOFF.
+    """
+
+    scale: float       # steam-flow ratio [-]
+    v_d: float         # drum volume [m3] (paper value, pre-scale)
+    v_r: float         # riser volume [m3]
+    v_dc: float        # downcomer volume [m3]
+    a_d: float         # drum wet area at operating level [m2]
+    m_t: float         # total metal mass [kg]
+    m_r: float         # riser metal mass [kg]
+    m_d: float         # drum metal mass [kg] (inferred; see HANDOFF)
+    cp_metal: float    # metal specific heat [J/(kg*K)]
+    k_friction: float  # downcomer-riser loop friction coefficient [-]
+    a_dc: float        # downcomer flow area [m2] (calibrated with k)
+    beta: float        # empirical steam-flow distribution parameter [-]
+    t_d: float         # residence time of steam in drum [s]
+    vsd_nom: float     # nominal steam volume under the level [m3], pre-scale
+    p_min: float = 3.2e6   # property-fit range guard [Pa]
+    p_max: float = 11.8e6
+
+
+class AstromBellDrum(DrumBoiler):
+    """Four-state drum model: p, V_wt, alpha_r, V_sd (eq. 24 of the paper).
+
+    States: drum pressure [Pa], total water volume [m3], riser-exit steam
+    mass quality [-], steam volume under the liquid level [m3]. Exhibits
+    shrink/swell (T9). finalize_design() must be called once after
+    construction to fix V_sd0 and the level reference at the design point.
+    """
+
+    def __init__(self, params: AstromBellDrumParams) -> None:
+        s = params.scale
+        self.p = params
+        self.vd = params.v_d * s
+        self.vr = params.v_r * s
+        self.vdc = params.v_dc * s
+        self.vt = self.vd + self.vr + self.vdc
+        self.ad = params.a_d * s
+        self.adc = params.a_dc * s
+        self.mt = params.m_t * s
+        self.mr = params.m_r * s
+        self.md = params.m_d * s
+        self.cp = params.cp_metal
+        self.vsd_nom = params.vsd_nom * s
+        # fixed at finalize_design():
+        self.vsd0 = 0.0        # V_sd^0 of eq. (18) [m3]
+        self.ref_below = 0.0   # nominal (V_wd + V_sd) at level 0 [m3]
+        self.vwt_nom = 0.0
+        self.ar_nom = 0.05
+        self.i_p = -1
+        self.i_vwt = -1
+        self.i_ar = -1
+        self.i_vsd = -1
+
+    def register_states(self, reg: StateRegistry) -> None:
+        self.i_p = reg.register("drum.p", 8.0e6, "Pa", 4.0e6)
+        self.i_vwt = reg.register("drum.Vwt", 45.0, "m3", 15.0)
+        self.i_ar = reg.register("drum.alpha_r", 0.1, "-", 0.15)
+        self.i_vsd = reg.register("drum.Vsd", 4.6, "m3", 5.0)
+
+    # ------------------------------------------------------------- properties
+
+    def _props(self, p: float):
+        """Saturation properties + d/dp at (clamped) pressure p."""
+        from hotwell import steam_properties as sp
+        if p < self.p.p_min:
+            p = self.p.p_min
+        elif p > self.p.p_max:
+            p = self.p.p_max
+        vf = sp.v_f(p)
+        vg = sp.v_g(p)
+        rw = 1.0 / vf
+        rs = 1.0 / vg
+        drw = -sp.dv_f_dp(p) * rw * rw
+        drs = -sp.dv_g_dp(p) * rs * rs
+        return (p, rw, rs, sp.h_f(p), sp.h_g(p), drw, drs,
+                sp.dh_f_dp(p), sp.dh_g_dp(p), sp.dtsat_dp(p))
+
+    @staticmethod
+    def _void(ar: float, rw: float, rs: float, drw: float, drs: float):
+        """Mean void fraction (eq. 12) and its partials (eq. 26)."""
+        from math import log
+        if ar < 1e-4:
+            ar = 1e-4
+        eta = ar * (rw - rs) / rs
+        ln1 = log(1.0 + eta)
+        av = rw / (rw - rs) * (1.0 - rs / ((rw - rs) * ar) * ln1)
+        dav_dp = (1.0 / (rw - rs) ** 2) * (rw * drs - rs * drw) * (
+            1.0 + rw / rs / (1.0 + eta) - (rs + rw) / (eta * rs) * ln1)
+        dav_dar = rw / (rs * eta) * (ln1 / eta - 1.0 / (1.0 + eta))
+        return eta, av, dav_dp, dav_dar
+
+    def _qdc(self, av: float, rw: float, rs: float) -> float:
+        """Downcomer circulation flow [kg/s], eq. (15)."""
+        from math import sqrt
+        arg = 2.0 * rw * self.adc * (rw - rs) * G * av * self.vr / self.p.k_friction
+        return sqrt(arg) if arg > 0.0 else 0.0
+
+    # ---------------------------------------------------------- design point
+
+    def finalize_design(self, p0: float, m_fw: float, q_fire: float,
+                        h_fw: float) -> None:
+        """Fix V_sd0 and the level reference from the design-point equilibrium
+        (paper section 4.8): Q = alpha_r*h_c*q_dc solved for alpha_r by
+        bisection; V_sd0 from the V_sd equilibrium with our (very) subcooled
+        feed; level reference = half-full drum below the surface."""
+        _, rw, rs, hw, hs, drw, drs, _, _, _ = self._props(p0)
+        hc = hs - hw
+        lo, hi = 1e-4, 0.6
+        for _ in range(80):
+            ar = 0.5 * (lo + hi)
+            _, av, _, _ = self._void(ar, rw, rs, drw, drs)
+            if ar * hc * self._qdc(av, rw, rs) < q_fire:
+                lo = ar
+            else:
+                hi = ar
+        self.ar_nom = ar = 0.5 * (lo + hi)
+        _, av, _, _ = self._void(ar, rw, rs, drw, drs)
+        self.vsd0 = self.vsd_nom + self.p.t_d * (hw - h_fw) * m_fw / (rs * hc)
+        self.ref_below = 0.5 * self.vd
+        vwd_nom = self.ref_below - self.vsd_nom
+        self.vwt_nom = vwd_nom + self.vdc + (1.0 - av) * self.vr
+
+    def steady_init(self, y: np.ndarray, p0: float, m_fw: float,
+                    q_fire: float) -> None:
+        y[self.i_p] = p0
+        y[self.i_vwt] = self.vwt_nom
+        y[self.i_ar] = self.ar_nom
+        y[self.i_vsd] = self.vsd_nom
+
+    # -------------------------------------------------------------- interface
+
+    def outputs(self, y: list[float]) -> DrumOutputs:
+        from hotwell import steam_properties as sp
+        p = y[self.i_p]
+        _, rw, rs, _, _, drw, drs, _, _, _ = self._props(p)
+        _, av, _, _ = self._void(y[self.i_ar], rw, rs, drw, drs)
+        vwd = y[self.i_vwt] - self.vdc - (1.0 - av) * self.vr
+        level = (vwd + y[self.i_vsd] - self.ref_below) / self.ad
+        return DrumOutputs(p=p, level=level, h_steam=sp.h_g(p))
+
+    def derivatives(self, y: list[float], ydot: list[float], out: DrumOutputs,
+                    q_fire: float, m_fw: float, h_fw: float, m_s: float) -> None:
+        """Eq. (24) of the paper, solved sequentially (lower triangular)."""
+        p = y[self.i_p]
+        vwt = y[self.i_vwt]
+        ar = y[self.i_ar]
+        vsd = y[self.i_vsd]
+        _, rw, rs, hw, hs, drw, drs, dhw, dhs, dts = self._props(p)
+        hc = hs - hw
+        vst = self.vt - vwt
+        _, av, dav_dp, dav_dar = self._void(ar, rw, rs, drw, drs)
+        qdc = self._qdc(av, rw, rs)
+        vwd = vwt - self.vdc - (1.0 - av) * self.vr
+        cp = self.cp
+
+        e11 = rw - rs
+        e12 = vwt * drw + vst * drs
+        e21 = rw * hw - rs * hs
+        e22 = (vwt * (hw * drw + rw * dhw) + vst * (hs * drs + rs * dhs)
+               - self.vt + self.mt * cp * dts)
+        e32 = ((rw * dhw - ar * hc * drw) * (1.0 - av) * self.vr
+               + ((1.0 - ar) * hc * drs + rs * dhs) * av * self.vr
+               + (rs + (rw - rs) * ar) * hc * self.vr * dav_dp
+               - self.vr + self.mr * cp * dts)
+        e33 = ((1.0 - ar) * rs + ar * rw) * hc * self.vr * dav_dar
+        b1 = ar * (1.0 + self.p.beta) * self.vr
+        e42 = (vsd * drs
+               + (rs * vsd * dhs + rw * vwd * dhw - vsd - vwd
+                  + self.md * cp * dts) / hc
+               + b1 * (av * drs + (1.0 - av) * drw + (rs - rw) * dav_dp))
+        e43 = ar * (1.0 + self.p.beta) * (rs - rw) * self.vr * dav_dar
+        e44 = rs
+
+        r1 = m_fw - m_s
+        r2 = q_fire + m_fw * h_fw - m_s * hs
+        r3 = q_fire - ar * hc * qdc
+        r4 = rs / self.p.t_d * (self.vsd0 - vsd) + (h_fw - hw) / hc * m_fw
+
+        det = e11 * e22 - e12 * e21
+        dvwt = (e22 * r1 - e12 * r2) / det
+        dp = (e11 * r2 - e21 * r1) / det
+        dar = (r3 - e32 * dp) / e33
+        dvsd = (r4 - e42 * dp - e43 * dar) / e44
+
+        ydot[self.i_p] = dp
+        ydot[self.i_vwt] = dvwt
+        ydot[self.i_ar] = dar
+        ydot[self.i_vsd] = dvsd
+
+    def mass(self, y: list[float]) -> float:
+        _, rw, rs, _, _, _, _, _, _, _ = self._props(y[self.i_p])
+        return rw * y[self.i_vwt] + rs * (self.vt - y[self.i_vwt])
+
+    def state_indices(self) -> list[int]:
+        return [self.i_p, self.i_vwt, self.i_ar, self.i_vsd]
+
+    def deriv_scales(self) -> list[float]:
+        return [1e3, 0.01, 1e-4, 0.01]  # Pa/s, m3/s, 1/s, m3/s

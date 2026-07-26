@@ -169,23 +169,26 @@ def solve_path_flow(
     lo, hi = 0.0, q_hi
     q = q_warm if 0.0 < q_warm < q_hi else 0.5 * q_hi
     rq = resid(q)
-    for _ in range(60):
+    # Converge on STEP SIZE to machine precision, not on a loose residual:
+    # outer solvers (steady-state root, RK4 stages) probe this function with
+    # tiny state perturbations, so the returned flow must be a smooth function
+    # of the inputs — a warm-start-dependent early exit turns their finite
+    # differences into noise (found via a near-null Jacobian column in the
+    # steady-state solve).
+    for _ in range(80):
         if rq > 0.0:
             lo = q
         else:
             hi = q
-        # secant step using bracket endpoints' freshest values via derivative estimate
         dq = 1e-7 * q_hi
         drdq = (resid(q + dq) - rq) / dq
         q_new = q - rq / drdq if drdq < 0.0 else 0.5 * (lo + hi)
         if not (lo < q_new < hi):
             q_new = 0.5 * (lo + hi)
-        if abs(q_new - q) < 1e-12 * q_hi:
-            q = q_new
-            break
+        step = abs(q_new - q)
         q = q_new
         rq = resid(q)
-        if abs(rq) < 1e-6 * max(abs(p_demand), 1e5):
+        if step < 1e-13 * q_hi:
             break
     head, q1, q2, m1, m2, c1, c2 = detail(q)
     return PathFlowResult(rho * q, q, (q1, q2), head, (m1, m2), (c1, c2))

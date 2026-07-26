@@ -79,6 +79,8 @@ class Simulator:
 
         c = cfg["control"]
         rp = self.plant.turbine.rp
+        three_element = bool(c["drum_level"].get("three_element", False))
+        te = c.get("drum_level_3e", {})
         self.control = ControlSystem(
             gov=GovernorParams(droop=c["governor"]["droop"],
                                p_rated=cfg["design"]["p_rated"],
@@ -88,6 +90,9 @@ class Simulator:
             pressure_pi=_pi_params(c["drum_pressure"]),
             pressure_sp=cfg["design"]["p_drum"],
             da_pi=_pi_params(c["da_level"]), da_sp=0.0,
+            three_element=three_element,
+            te_trim=_pi_params(te["trim"]) if three_element else None,
+            te_flow=_pi_params(te["flow"]) if three_element else None,
         )
         self.commands = Commands(0.55, 0.85, 0.8, 0.6)
         self.last_obs: Observation | None = None
@@ -394,27 +399,16 @@ class Simulator:
         rp = plant.turbine.rp
         omega0 = rp.omega0
 
-        # --- analytic construction
+        # --- analytic construction (design-point flows scaled to this load)
+        from hotwell import steam_properties as sp
         x_thr = tp.x_rated * load_w / p_rated
         m_turb = tp.k_t * x_thr * p0
         p_chest = x_thr * p0
 
-        drum = plant.drum
-        from hotwell import steam_properties as sp
-        v_liq = drum.p.v_liq_nwl
-        v_stm = drum.p.v_total - v_liq
-        m_drum = v_liq / sp.v_f(p0) + v_stm / sp.v_g(p0)
-        x_q = (v_stm / sp.v_g(p0)) / m_drum
-        u_drum = m_drum * (sp.u_f(p0) + x_q * (sp.u_g(p0) - sp.u_f(p0)))
-
         da = plant.deaerator
-        m_hw = plant.condenser.m_nominal(992.6)
-        m_da = da.m_nominal()
-
-        m_cond = m_turb  # exhaust = throttle flow at steady state
         p_cond = plant.condenser.p_cond(m_turb, 0.0)
         h_c = sp.hf_t(sp.tsat_lowp(p_cond))
-        m_peg = da.m_pegging(m_cond, h_c, p0, sp.h_g(p0))
+        m_peg = da.m_pegging(m_turb, h_c, p0, sp.h_g(p0))
         m_fw = m_turb + m_peg
         q_fire = m_fw * (sp.h_g(p0) - da.h_fw)
         x_fir = q_fire / (plant.eta_comb * plant.q_fuel_max)
@@ -428,12 +422,11 @@ class Simulator:
         y[reg.index("cp2.s")] = 0.0
         y[reg.index("fp1.s")] = 1.0
         y[reg.index("fp2.s")] = 0.0
-        y[reg.index("drum.M")] = m_drum
-        y[reg.index("drum.U")] = u_drum
+        plant.drum.steady_init(y, p0, m_fw, q_fire)
         y[reg.index("chest.p")] = p_chest
         y[reg.index("rotor.omega")] = omega0
-        y[reg.index("hotwell.M")] = m_hw
-        y[reg.index("da.M")] = m_da
+        y[reg.index("hotwell.M")] = plant.condenser.m_nominal(992.6)
+        y[reg.index("da.M")] = da.m_nominal()
 
         # --- scipy root polish: unknowns = 13 states + lcv_x
         i_fw = reg.index("fw_valve.x")
@@ -444,12 +437,19 @@ class Simulator:
         # NOTE: hotwell.M's mass-balance row is linearly dependent with da.M's
         # at the solution (both pin the same condensate flow), so the hotwell
         # is pinned by LEVEL = nominal instead; dM_hw/dt = 0 then follows.
-        slow_idx = [reg.index(k) for k in
-                    ("drum.M", "drum.U", "chest.p", "rotor.omega", "da.M")]
-        slow_scale = np.array([1.0, 1e6, 1e4, 1e-2, 1.0])
+        # The drum model contributes its own derivative rows and scales.
+        slow_idx = plant.drum.state_indices() + [
+            reg.index(k) for k in ("chest.p", "rotor.omega", "da.M")]
+        slow_scale = np.array(plant.drum.deriv_scales() + [1e4, 1e-2, 1.0])
+        n_slow = len(slow_idx)
         disc = self.disc
 
-        def residual(u: np.ndarray) -> np.ndarray:
+        # nondimensionalize the unknowns (state spans + 1.0 for lcv) so hybr's
+        # finite-difference steps are sensible across 8 orders of magnitude
+        u_char = np.concatenate([reg.spans(), [1.0]])
+
+        def residual(u_scaled: np.ndarray) -> np.ndarray:
+            u = u_scaled * u_char
             yy = u[:reg.n]
             lcv = u[reg.n]
             cmds = Commands(fw_cmd=yy[i_fw], throttle_cmd=yy[i_thr],
@@ -457,23 +457,25 @@ class Simulator:
             ydot, aux = plant.deriv(yy, cmds, disc)
             r = np.empty(reg.n + 1)
             r[0:4] = ydot[pump_idx]
-            r[4:9] = ydot[slow_idx] / slow_scale
-            r[9] = aux.hw_level_rel / 1e-3
-            r[10] = (aux.p_drum - p0) / 1e4
-            r[11] = aux.drum_level / 1e-3
-            r[12] = aux.da_level_rel / 1e-3
-            r[13] = (yy[i_omega] - omega0) / 1e-3
+            r[4:4 + n_slow] = ydot[slow_idx] / slow_scale
+            k = 4 + n_slow
+            r[k] = aux.hw_level_rel / 1e-3
+            r[k + 1] = (aux.p_drum - p0) / 1e4
+            r[k + 2] = aux.drum_level / 1e-3
+            r[k + 3] = aux.da_level_rel / 1e-3
+            r[k + 4] = (yy[i_omega] - omega0) / 1e-3
             return r
 
-        # 14 unknowns (13 states + lcv_x) / 14 residuals: the three actuator
+        # n+1 unknowns (states + lcv_x) / n+1 residuals: the three actuator
         # derivative rows are degenerate (cmd := position) and are replaced by
-        # the loop-equilibrium conditions r[9..13].
+        # the loop-equilibrium conditions in the last five rows.
         u0 = np.concatenate([y, [0.6]])
-        sol = root(residual, u0, method="hybr", options={"xtol": 1e-13})
+        sol = root(residual, u0 / u_char, method="hybr", options={"xtol": 1e-13})
         if not sol.success:
             raise RuntimeError(f"steady-state root failed: {sol.message}")
-        self.y = sol.x[:reg.n].copy()
-        lcv_x = float(sol.x[reg.n])
+        u_sol = sol.x * u_char
+        self.y = u_sol[:reg.n].copy()
+        lcv_x = float(u_sol[reg.n])
 
         # --- controllers bumpless at solved outputs
         self.t = 0.0
@@ -483,6 +485,12 @@ class Simulator:
         self.commands = cmds
         _, aux = plant.deriv(self.y, cmds, disc)
         self.control.drum_level.initialize(cmds.fw_cmd, aux.drum_level)
+        if self.control.three_element:
+            # trim output at equilibrium = feed - steam = pegging flow
+            self.control.fw_trim.initialize(aux.m_fw - aux.m_throttle,
+                                            aux.drum_level)
+            self.control.fw_flow.sp = aux.m_fw
+            self.control.fw_flow.initialize(cmds.fw_cmd, aux.m_fw)
         self.control.drum_pressure.initialize(cmds.firing_cmd, aux.p_drum)
         self.control.da_level.initialize(lcv_x, aux.da_level_rel)
 
