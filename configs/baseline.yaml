@@ -67,9 +67,12 @@ pumps:
     k_suction: 33.0       # m/(m3/s)^2 individual suction line friction
     i_rated: 60.0         # A motor current proxy at rated hydraulic power
   feed:                   # 2 x 100%: FP-1, FP-2
-    q_rated: 0.0916       # m3/s (~87 kg/s at 111 degC)
-    h0: 1128.0            # m shutoff (1.25 x rated head 902 m)
-    k: 26934.0            # m/(m3/s)^2
+    q_rated: 0.0916       # m3/s (~87 kg/s at 111 degC, service rated)
+    # pump's own rated point is 0.110 m3/s (20% flow margin over service);
+    # shutoff = 1.25 x head at own rated => flat enough that a +10% load
+    # step does not starve the drum with the FRV wide open.
+    h0: 1117.0            # m shutoff
+    k: 18462.0            # m/(m3/s)^2  (H(0.0916) = 962 m)
     tau: 4.0              # s
     npsh_a: 9.8           # m — deliberately flat curve: NPSH_req ~ 10.3 m at rated,
     npsh_b: 59.6          #     so DA drain-down erodes margin through the 0.5 m trip
@@ -82,7 +85,8 @@ network:
   k_line_cond: 6.4826e+6  # Pa/(m3/s)^2 (4 m head at rated condensate flow)
   k_line_feed: 5.5552e+6  # Pa/(m3/s)^2 (5 m head at rated feed flow)
   cv_lcv: 0.38295         # kg/(s*Pa^0.5) — DA level control valve (x~0.6 at rated)
-  cv_frv: 0.19335         # kg/(s*Pa^0.5) — feed reg valve (x~0.6 at rated)
+  cv_frv: 0.1495          # kg/(s*Pa^0.5) — feed reg valve (x~0.55 at rated,
+                          # ~120 kg/s capacity at x=1 with the flat pump)
 
 safety_valve:
   p_open: 8.6e+6          # Pa
@@ -102,8 +106,8 @@ control:
     hi: 1.0
     t_track: 15.0
   drum_pressure:          # PV: sensed drum pressure [Pa]; output: firing cmd
-    kp: 7.0e-8
-    ki: 1.0e-9
+    kp: 1.8e-7
+    ki: 3.0e-9
     lo: 0.0
     hi: 1.0
     t_track: 20.0

@@ -2,8 +2,10 @@
 
 ## Status summary
 
-**M2 complete** (protection engine + YAML table, actions, scenarios, sensor faults,
-historian, determinism; T5/T10/T12 pass). M3 (casualty tuning + plots) not started.
+**M3 complete — phase-1 finish line reached.** All acceptance tests pass (T1–T8,
+T10–T12; T9 committed as skipped, gating the optional M4 drum). The three canonical
+scenarios run, hit their timing targets, and produce the standard plot set. M4 not
+started (requires explicit go-ahead per plan section 12).
 
 ## How to run
 
@@ -22,17 +24,19 @@ use the project venv.
 | Test | Status | Evidence |
 |---|---|---|
 | T1 property anchors | **pass** | Tsat(8 MPa) = 295.06 degC, Tsat(0.15 MPa) = 111.37 degC, h_g(8 MPa) = 2758.1 kJ/kg |
-| T2 steady state | **pass** | scaled ‖ydot‖_max = 4.8e-16 1/s at init; worst 600 s drift 0.0005% of span |
+| T2 steady state | **pass** | scaled ‖ydot‖_max = 2.1e-8 1/s at init (gate 1e-7); worst 600 s drift < 0.001% of span; zero alarms |
 | T3 mass audit | **pass** | drift −0.000000% of 27.81 t inventory over 600 s |
 | T4 energy audit | **pass** | residual −0.0000 MW = −0.0000% of firing |
 | T5 determinism | **pass** | two `cp1_trip_recovered` runs, identical SHA-256 state-history hashes |
 | T10 sensor fault | **pass** | +50 mm bias → true level driven low (underfeed); −350 mm bias → MFT on sensed LOLO with truth normal; first-out = DRUM_LVL_LOLO |
 | T12 action validation | **pass** | running-pump start, manual-cmd-in-auto, unknown key, out-of-bounds all rejected-and-recorded with reasons; no raise |
-| T6–T8, T11 | not started | — (M3) |
+| T6 droop | **pass** | Δf −0.2700 Hz vs analytic −0.2777 Hz on measured ΔP_e = 5.553 MW → 97.2% (gate ±5%); no alarms |
+| T7 casualty (unrecovered) | **pass** | MFT via DRUM_LVL_LOLO; first protective trip FP1_SUCTION at +92.65 s (window 45–120 s); first-out = CP1_TRIP:overload |
+| T8 casualty (recovered) | **pass** | zero trips; worst FP NPSH margin 2.30 m; levels re-established well inside +300 s (band by +78 s) |
 | T9 inverse response | **skipped** | committed skip marker, gates the M4 drum |
+| T11 performance | **pass** | 1 h simulated in 11.0 s wall (328× real time; budget 60 s) |
 
-Suite: `27 passed in 4.53s`; ruff clean. Wall-clock pace ≈ 9 s per simulated hour
-(T11 budget is 60 s — margin 6×). T2 now also asserts zero alarms over the 600 s hold.
+Suite: `31 passed, 1 skipped` (~23 s); ruff clean.
 
 Property fit accuracy (max relative error vs source points, limit 0.5%): worst 0.051 %
 (v_f(T)); all others ≤ 0.041 %. Full per-function report in the generated module
@@ -40,7 +44,28 @@ docstring.
 
 ## Achieved casualty timings vs targets
 
-Not yet — M3.
+`cp1_trip_unrecovered` (CP-1 overload trip at t = 300 s), full annunciator sequence:
+
+| t rel. CP-1 trip | Event | Target |
+|---|---|---|
+| +19.9 s | DRUM_P_HI alarm (pegging-steam demand lost, transient; clears ~+40 s) | — |
+| +23.2 s | DA_LO alarm (DA draining) | — |
+| +57.2 s | HOTWELL_HI alarm (condensate backing up) | — |
+| **+92.7 s** | **FP1_SUCTION trip** (NPSH margin < 0.5 m sustained 5 s) | **45–120 s** ✓ |
+| +98.0 s | SAFETY_VALVE lifts (feed lost at full steam draw; cycles ~5×) | believable (see D16) |
+| +112.5 s | DRUM_LVL_LO alarm | — |
+| **+127.4 s** | **DRUM_LVL_LOLO → MFT + turbine trip → bus dead → plant_dead** | required ✓ |
+
+The DA buffer consumes ≈85 of the 92.7 s to first trip, as the plan intends.
+First-out: CP1_TRIP:overload → FP1_SUCTION → FP1_TRIP:FP1_SUCTION → DRUM_LVL_LOLO.
+
+`cp1_trip_recovered` (CP-2 started +12 s): worst FP NPSH margin 2.30 m (trip at
+0.5 m — comfortable no-trip margin), zero alarms, all levels back in tight bands by
++78 s after the standby start (limit 300 s).
+
+`load_step` (+6 MW on non-vital at t = 300 s): f settles 60.000 → 59.730 Hz; minimum
+transient 59.41 Hz for < 2 s, so not even a transient FREQ_LO annunciation; drum
+pressure dips to 7.67 MPa (alarm at 7.2); drum level max excursion −16 mm.
 
 ## Reference design point, achieved values
 
@@ -56,8 +81,8 @@ Not yet — M3.
 | Firing heat (effective) | ≈180 MW | **199.59 MW** | plan's table formula omits DA heating; see D5 |
 | Condenser duty | — | 139.59 MW | 7.000 kPa at rated |
 | Energy closure | <2% | 0.0000% | |
-| Throttle / fw valve / firing / LCV | — | 0.850 / 0.608 / 0.801 / 0.579 | |
-| NPSH margin FP1 / CP1 | — | 2.70 m / 1.84 m | |
+| Throttle / fw valve / firing / LCV | — | 0.850 / 0.553 / 0.801 / 0.600 | |
+| NPSH margin FP1 / CP1 | — | 2.70 m / 1.00 m | |
 | Total water inventory | — | 27.81 t | incl. 2 t piping holdup |
 
 Sizing-rule compliance (achieved):
@@ -73,8 +98,8 @@ Sizing-rule compliance (achieved):
 - **Control gains** (`configs/baseline.yaml`, `control:` section) — one line each:
   - Drum level PI kp=3.0, ki=0.05 (Ti=60 s): valve-to-level plant is an integrator
     (~0.013 (m/s)/valve-unit); gives ~20 s closed-loop TC, no oscillation at 20 Hz.
-  - Drum pressure PI kp=7e-8 1/Pa, ki=1e-9 (Ti=70 s): drum energy storage ≈534 J/Pa;
-    kp gives ~30 s closed-loop TC on pressure; slower than level loop by design.
+  - Drum pressure PI kp=1.8e-7 1/Pa, ki=3e-9 (Ti=60 s): drum energy storage ≈534 J/Pa;
+    kp gives ~12 s closed-loop TC on pressure (retuned in M3 — see below).
   - DA level PI kp=1.5, ki=0.025: same integrator logic on the 3 m² DA waterplane.
   - Governor: pure droop R=0.05, no integrator (plan-mandated); x_cmd scaled by
     x_rated=0.85 so load_ref = P_rated at f0 commands exactly rated flow (see D6).
@@ -87,8 +112,20 @@ Sizing-rule compliance (achieved):
   NPSH is purely static + level − friction, so the curve constant dominates; sized so
   DA drain-down crosses the 0.5 m trip margin ≈95 s after a condensate loss (target
   window 45–120 s), just before the tank runs dry.
-- **Pump curves**: shutoff = 1.25 × rated head per plan; CP 50/40.2 m, FP 1128/902 m;
-  Cv's sized for valve positions ≈0.6 at rated (control authority both directions).
+- **Pump curves**: shutoff = 1.25 × the pump's own rated head per plan. CP: 50 m
+  shutoff / 40.2 m at service flow. FP: 1117 m shutoff / 962 m at service flow, with
+  the pump's own rated point at 0.110 m³/s — 20% flow margin over the 0.0916 m³/s
+  service point. The margin is load-bearing: the first FP sizing (1128/902 m, steeper
+  K = 26934) starved the drum during the +10% load step with the FRV wide open
+  (capacity ceiling ≈93.5 kg/s vs ≈95.8 needed) — drum level walked down ~0.15 mm/s
+  with fw_valve.x saturated at 1.0. Found by probing load_step before writing T6.
+- **FRV Cv = 0.1495** (x ≈ 0.55 at rated, ≈120 kg/s capacity wide-open with the flat
+  pump); LCV Cv = 0.38295 (x ≈ 0.60 at rated).
+- **Drum pressure PI retuned during M3** (kp 7e-8 → 1.8e-7 1/Pa, ~12 s closed-loop):
+  at the original tuning, losing the 10.2 kg/s pegging draw on a CP trip drove drum
+  pressure through the safety valve 21 s into the casualty. A boiler master that
+  lifts safeties on a 12% demand loss is not believable; the tighter loop caps the
+  excursion at 8.47 MPa (DRUM_P_HI alarm only, transient).
 
 ## Decisions taken under ask-vs-decide
 
@@ -134,6 +171,37 @@ Sizing-rule compliance (achieved):
 - **D9 — chest holdup in the mass audit**: the chest lag stores exactly
   k_t·τ_ch·p_chest kg (≈31 kg at rated); counted in total inventory so the mass audit
   closes exactly, not just approximately.
+- **D11 — sensing runs immediately before the event layer.** Plan section 3.2 lists
+  "event layer" (step 4) before "sensors sample" (step 5), but protection must consume
+  sensed values (locked decision, section 1). Internally the sensing pipeline therefore
+  runs once right after RK4 and feeds both the protection evaluation and the returned
+  observation; the observable ordering (discrete transitions settle before the
+  historian records) is preserved.
+- **D12 — trip slams are instantaneous position jumps.** MFT sets firing.x = 0 and a
+  turbine trip sets throttle.x = 0 directly in the event layer, bypassing the actuator
+  lags — modeling the separate fuel-trip/stop valves real plants have. While the latch
+  is in, the corresponding controller command is forced to 0.
+- **D13 — `set_load` scenario event type added.** Section 9's event-type list has no way
+  to express its own first canonical scenario (the +10% non-vital load step); `set_load`
+  sets a load block's P0 demand. Minimal, deterministic extension.
+- **D15 — T6 evaluated against measured ΔP_e, not the commanded step.** On an islanded
+  bus with load frequency dependence (k_pf = 1.5), a commanded +6 MW block step settles
+  to ΔP_e = 5.553 MW; the droop law ties frequency to actual power, so Δf = −R·ΔP_e/
+  P_rated·f0 is the honest analytic (97.2% match). Against the commanded 6 MW the same
+  run reads 90.0% — outside the 5% gate for reasons that are physics, not error.
+- **D16 — post-feed-loss safety-valve lift accepted as believable.** ~5 s after the FP
+  trips (full steam draw, zero feed), drum pressure spikes: feedwater is the boiler's
+  heat sink, and holding 8 MPa with no feed needs firing to run BACK ~80 MW faster
+  than the 12 s pressure loop can act. The SV cycles ~5× between 8.6/8.3 MPa until
+  the LOLO MFT kills firing — textbook loss-of-feedwater behavior; relief mass is
+  audited. Alternative rejected: adding a loss-of-feed MFT (not in the plan's
+  protection table; would also shortcut the drum-level LOLO story the plan asks for).
+- **D14 — trips.reset semantics.** Reset clears engine latches whose condition has
+  cleared, then recomputes MFT/turbine-trip flags from remaining latches; the generator
+  breaker recloses if the turbine trip cleared, and tripped pumps drop to `stopped`
+  (restartable) unless a pump-trip latch remains. Scenario-injected pump trips carry no
+  engine latch and always clear to `stopped` on reset. Not exercised by the canonical
+  scenarios; unit-level behavior only in phase 1.
 - **D10 — turbine trip = generator breaker opens = bus dead.** Single generator,
   islanded, no station-service alternative is modeled, so a turbine trip deenergizes
   both load blocks AND the pump motors (pumps trip on "bus_dead"). This is what makes
@@ -143,12 +211,38 @@ Sizing-rule compliance (achieved):
 
 ## Known issues / rough edges
 
-None yet.
+- The steady-state root residual is ~2e-8 (scaled) after the M3 feed-pump resize vs
+  ~5e-16 before — hybr stops within xtol at a slightly flatter point. Well inside the
+  T2 gate (1e-7); cosmetic.
+- CP NPSH margin at rated is 1.00 m (no protection entry exists for CP suction, per
+  plan table). If a hotwell-draining casualty is added later, consider a CP_SUCTION
+  table entry.
+- After MFT + turbine trip the drum closure sits near 8.3–8.4 MPa with everything
+  isolated (no heat loss modeled), so pressure stays high in the dead plant. Scenarios
+  end on plant_dead, so nothing consumes this state in phase 1.
+- Late-run `load_step` MW trace shows ±0.05 MW dither from quantized sensed frequency
+  through the droop law — honest sensor-resolution limit cycling, visible only when
+  zoomed.
 
 ## Questions for Alan
 
-None blocking.
+None blocking. Two judgment calls to ratify (both documented, neither changes
+contracts): D5 (pegging steam; firing at rated is 199.6 MW, not the reference
+table's ≈180 MW) and D15 (T6 evaluated against measured ΔP_e).
 
 ## Notes for the panel phase
 
-Nothing yet — observation/action contracts land in M2.
+- The observation contract is `hotwell.sensors.OBSERVATION_SPEC` (22 instruments,
+  SI, with ranges/resolutions) plus `Observation.indications` (pump run/trip lights,
+  MFT/turbine-trip/breaker/SV flags — honest in phase 1) and `Observation.alarms`
+  (list of (id, clear|active|acknowledged) straight from the protection table ids).
+- The action surface is `hotwell.actions.ACTION_SCHEMA`; every key carries bounds and
+  a validity note. Rejections come back as recorded reasons — the panel can surface
+  them verbatim as operator feedback.
+- `data/protection.yaml` ids are the annunciator window list; the timeline strip in
+  `run_scenario.py` is a preview of the annunciator history display.
+- Historian `query(signals, t0, t1, max_points)` is strip-chart-shaped; 20 Hz for the
+  trailing 10 min, 1 Hz beyond — matches a panel chart recorder well.
+- Frequency instrument range is 50–70 Hz so the 110% overspeed setpoint (66 Hz) is
+  observable — a 55–65 Hz gauge would have clamped below the trip point (found during
+  design; keep in mind when drawing gauge faces).
