@@ -1,0 +1,115 @@
+# hotwell baseline plant parameters. ALL VALUES SI unless noted.
+# (PyYAML float gotcha: exponents must carry a sign — 8.0e+6, not 8e6.)
+
+design:
+  p_drum: 8.0e+6          # Pa — nominal drum pressure
+  p_rated: 60.0e+6        # W — rated electrical output
+  f0: 60.0                # Hz
+
+drum:
+  v_total: 28.0           # m3 — drum+riser fluid volume
+  v_liq_nwl: 14.0         # m3 — liquid volume at normal water level
+  a_waterplane: 16.0      # m2 — effective waterplane (vertical-cylinder equiv.)
+  p_min: 3.2e+6           # Pa — closure clamp (property-fit range guard)
+  p_max: 11.8e+6          # Pa
+
+turbine:
+  # k_t = P_rated/(x_rated * w_spec * p_drum) so the droop law, rated flow,
+  # and rated power are exactly consistent: 76.923 kg/s at x=0.85, 8 MPa.
+  k_t: 1.131221719457014e-5   # kg/(s*Pa)
+  w_spec: 780.0e+3        # J/kg — constant specific work (8 MPa sat -> 7 kPa, eta 0.80)
+  tau_chest: 0.4          # s
+  x_rated: 0.85           # throttle position at rated flow/pressure
+
+rotor:
+  s_rating: 75.0e+6       # VA
+  h_inertia: 4.0          # s
+  d_m: 100.0              # N*m*s/rad — small mechanical damping
+  f0: 60.0                # Hz
+
+condenser:
+  p0: 5.5e+3              # Pa — condenser pressure at zero exhaust
+  p_load_slope: 1.5e+3    # Pa — added at rated exhaust (7 kPa total at rated)
+  m_exh_rated: 76.923     # kg/s
+  a_hotwell: 8.0          # m2
+  hw_level_nominal: 1.0   # m above hotwell bottom (>= 45 s of rated condensate in band)
+  z_hw: 3.0               # m — hotwell bottom above CP suction
+
+deaerator:
+  p_da: 0.15e+6           # Pa — fixed operating pressure (Tsat ~ 111.4 degC)
+  area: 3.0               # m2
+  level_nominal: 2.5      # m above tank bottom (~79 s of rated feed to low-suction)
+  z_da: 11.0              # m — tank bottom above FP suction
+
+loads:
+  vital_p0: 12.0e+6       # W at rated (placeholder; set from load_mw at init)
+  nonvital_p0: 48.0e+6    # W
+  k_pf: 1.5               # frequency dependence
+  vital_fraction: 0.2
+
+firing:
+  eta_comb: 0.89          # combustion efficiency
+  q_fuel_max: 280.0e+6    # W fuel heat at firing.x = 1 (249.2 MW effective max)
+
+actuators:
+  fw_valve: {tau: 2.0, rate: 0.2}    # s, 1/s
+  throttle: {tau: 1.0, rate: 1.0}
+  firing:   {tau: 5.0, rate: 0.1}
+
+pumps:
+  condensate:             # 2 x 100%: CP-1, CP-2
+    q_rated: 0.0775       # m3/s (~77 kg/s at 39 degC)
+    h0: 50.0              # m shutoff head at s=1 (1.25 x rated head 40.2 m)
+    k: 1631.0             # m/(m3/s)^2
+    tau: 3.0              # s spin-up/coast-down
+    npsh_a: 2.0           # m NPSH required at zero flow
+    npsh_b: 133.0         # m/(m3/s)^2
+    k_suction: 33.0       # m/(m3/s)^2 individual suction line friction
+    i_rated: 60.0         # A motor current proxy at rated hydraulic power
+  feed:                   # 2 x 100%: FP-1, FP-2
+    q_rated: 0.0916       # m3/s (~87 kg/s at 111 degC)
+    h0: 1128.0            # m shutoff (1.25 x rated head 902 m)
+    k: 26934.0            # m/(m3/s)^2
+    tau: 4.0              # s
+    npsh_a: 9.8           # m — deliberately flat curve: NPSH_req ~ 10.3 m at rated,
+    npsh_b: 59.6          #     so DA drain-down erodes margin through the 0.5 m trip
+    k_suction: 59.6       # m/(m3/s)^2 (0.5 m at rated)
+    i_rated: 400.0        # A
+
+network:
+  z_da_inlet: 14.0        # m — DA condensate inlet above CP suction
+  z_drum_inlet: 8.0       # m — drum feed inlet above FP suction
+  k_line_cond: 6.4826e+6  # Pa/(m3/s)^2 (4 m head at rated condensate flow)
+  k_line_feed: 5.5552e+6  # Pa/(m3/s)^2 (5 m head at rated feed flow)
+  cv_lcv: 0.38295         # kg/(s*Pa^0.5) — DA level control valve (x~0.6 at rated)
+  cv_frv: 0.19335         # kg/(s*Pa^0.5) — feed reg valve (x~0.6 at rated)
+
+safety_valve:
+  p_open: 8.6e+6          # Pa
+  p_reseat: 8.3e+6        # Pa
+  c_sv: 1.0744e-5         # kg/(s*Pa) — ~92 kg/s at 8.6 MPa (>= 1.2 x rated steam)
+
+audit:
+  piping_holdup: 2000.0   # kg — fixed piping/line inventory constant
+
+control:
+  governor:
+    droop: 0.05           # R
+  drum_level:             # PV: sensed drum level [m]; output: fw valve cmd
+    kp: 3.0
+    ki: 0.05
+    lo: 0.0
+    hi: 1.0
+    t_track: 15.0
+  drum_pressure:          # PV: sensed drum pressure [Pa]; output: firing cmd
+    kp: 7.0e-8
+    ki: 1.0e-9
+    lo: 0.0
+    hi: 1.0
+    t_track: 20.0
+  da_level:               # PV: sensed DA level rel [m]; output: LCV position
+    kp: 1.5
+    ki: 0.025
+    lo: 0.0
+    hi: 1.0
+    t_track: 15.0
