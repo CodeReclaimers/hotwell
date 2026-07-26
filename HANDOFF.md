@@ -2,8 +2,8 @@
 
 ## Status summary
 
-**M1 complete** (all components, flow network, controllers, steady-state init, audit;
-T2–T4 pass). M2–M3 not started.
+**M2 complete** (protection engine + YAML table, actions, scenarios, sensor faults,
+historian, determinism; T5/T10/T12 pass). M3 (casualty tuning + plots) not started.
 
 ## How to run
 
@@ -25,10 +25,14 @@ use the project venv.
 | T2 steady state | **pass** | scaled ‖ydot‖_max = 4.8e-16 1/s at init; worst 600 s drift 0.0005% of span |
 | T3 mass audit | **pass** | drift −0.000000% of 27.81 t inventory over 600 s |
 | T4 energy audit | **pass** | residual −0.0000 MW = −0.0000% of firing |
-| T5–T12 | not started | — |
+| T5 determinism | **pass** | two `cp1_trip_recovered` runs, identical SHA-256 state-history hashes |
+| T10 sensor fault | **pass** | +50 mm bias → true level driven low (underfeed); −350 mm bias → MFT on sensed LOLO with truth normal; first-out = DRUM_LVL_LOLO |
+| T12 action validation | **pass** | running-pump start, manual-cmd-in-auto, unknown key, out-of-bounds all rejected-and-recorded with reasons; no raise |
+| T6–T8, T11 | not started | — (M3) |
+| T9 inverse response | **skipped** | committed skip marker, gates the M4 drum |
 
-Suite: `16 passed in 1.79s`; ruff clean. Wall-clock pace ≈ 9 s per simulated hour
-(T11 budget is 60 s — margin 6×).
+Suite: `27 passed in 4.53s`; ruff clean. Wall-clock pace ≈ 9 s per simulated hour
+(T11 budget is 60 s — margin 6×). T2 now also asserts zero alarms over the 600 s hold.
 
 Property fit accuracy (max relative error vs source points, limit 0.5%): worst 0.051 %
 (v_f(T)); all others ≤ 0.041 %. Full per-function report in the generated module

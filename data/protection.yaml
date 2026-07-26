@@ -1,0 +1,50 @@
+# Protection and alarm table — first-class contract (plan section 7).
+# The panel annunciator and the agent's recommendation validator read this
+# same file in later phases. All setpoints SI; signals are SENSED instrument
+# names from the observation spec (protection never sees truth).
+#
+# op: lt | gt.  delay [s]: condition must hold this long to activate.
+# latching: true => stays active after the condition clears, until trips.reset.
+# actions: alarm | mft | turbine_trip | trip_pump (needs target) |
+#          shed_nonvital | safety_valve (hysteresis entry: reseat required).
+# CP/FP overload trips are scenario-injected events, not table conditions.
+
+conditions:
+  - {id: DRUM_LVL_LO,   signal: drum_level, op: lt, setpoint: -0.150, delay: 2.0,
+     latching: false, actions: [alarm]}
+  - {id: DRUM_LVL_LOLO, signal: drum_level, op: lt, setpoint: -0.300, delay: 1.0,
+     latching: true,  actions: [mft, turbine_trip]}
+  - {id: DRUM_LVL_HI,   signal: drum_level, op: gt, setpoint: 0.150, delay: 2.0,
+     latching: false, actions: [alarm]}
+  - {id: DRUM_LVL_HIHI, signal: drum_level, op: gt, setpoint: 0.300, delay: 1.0,
+     latching: true,  actions: [turbine_trip]}
+  - {id: DRUM_P_HI,     signal: drum_pressure, op: gt, setpoint: 8.4e+6, delay: 2.0,
+     latching: false, actions: [alarm]}
+  - {id: SAFETY_VALVE,  signal: drum_pressure, op: gt, setpoint: 8.6e+6, delay: 0.0,
+     latching: false, actions: [safety_valve], reseat: 8.3e+6}
+  - {id: DRUM_P_LO,     signal: drum_pressure, op: lt, setpoint: 7.2e+6, delay: 5.0,
+     latching: false, actions: [alarm]}
+  - {id: FREQ_LO,       signal: frequency, op: lt, setpoint: 59.5, delay: 2.0,
+     latching: false, actions: [alarm]}
+  - {id: FREQ_HI,       signal: frequency, op: gt, setpoint: 60.5, delay: 2.0,
+     latching: false, actions: [alarm]}
+  - {id: UF_SHED,       signal: frequency, op: lt, setpoint: 58.8, delay: 1.0,
+     latching: false, actions: [shed_nonvital]}
+  - {id: UF_TRIP,       signal: frequency, op: lt, setpoint: 57.0, delay: 2.0,
+     latching: true,  actions: [turbine_trip]}
+  - {id: OVERSPEED,     signal: frequency, op: gt, setpoint: 66.0, delay: 0.0,
+     latching: true,  actions: [turbine_trip]}
+  - {id: FP1_SUCTION,   signal: fp1_npsh_margin, op: lt, setpoint: 0.5, delay: 5.0,
+     latching: true,  actions: [trip_pump], target: fp1}
+  - {id: FP2_SUCTION,   signal: fp2_npsh_margin, op: lt, setpoint: 0.5, delay: 5.0,
+     latching: true,  actions: [trip_pump], target: fp2}
+  - {id: HOTWELL_LO,    signal: hotwell_level, op: lt, setpoint: -0.5, delay: 5.0,
+     latching: false, actions: [alarm]}
+  - {id: HOTWELL_HI,    signal: hotwell_level, op: gt, setpoint: 0.5, delay: 5.0,
+     latching: false, actions: [alarm]}
+  - {id: DA_LO,         signal: da_level, op: lt, setpoint: -0.5, delay: 5.0,
+     latching: false, actions: [alarm]}
+  - {id: DA_HI,         signal: da_level, op: gt, setpoint: 0.5, delay: 5.0,
+     latching: false, actions: [alarm]}
+  - {id: COND_P_HI,     signal: cond_pressure, op: gt, setpoint: 12.0e+3, delay: 5.0,
+     latching: false, actions: [alarm]}

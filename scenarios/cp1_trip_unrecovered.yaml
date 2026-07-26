@@ -1,0 +1,11 @@
+# Canonical scenario 2: CP-1 trips, no operator action, no auto-start.
+# Expected cascade: condensate lost -> DA drains (hotwell rises) -> FP-1 NPSH
+# margin erodes -> FP-1 trips -> drum level falls -> DRUM_LVL_LOLO -> MFT +
+# turbine trip -> bus dead -> plant_dead. First protective trip 45-120 s after
+# the pump trip; first-out identifies CP-1 overload as the initiator.
+name: cp1_trip_unrecovered
+seed: 42
+init: {load_mw: 60, mode: islanded}
+events:
+  - {t: 300.0, type: trip_pump, target: cp1, reason: overload}
+end: {max_t: 1800}

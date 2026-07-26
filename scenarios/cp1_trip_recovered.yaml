@@ -1,0 +1,10 @@
+# Canonical scenario 3: CP-1 trips; scripted operator starts CP-2 ~12 s later.
+# Expect NPSH margin dips but no trip; all levels return to bands; steady
+# state re-established within 300 s of the standby start.
+name: cp1_trip_recovered
+seed: 42
+init: {load_mw: 60, mode: islanded}
+events:
+  - {t: 300.0, type: trip_pump, target: cp1, reason: overload}
+  - {t: 312.0, type: action, command: {"cp2.start": true}}
+end: {max_t: 900}

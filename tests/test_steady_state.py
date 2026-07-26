@@ -32,6 +32,7 @@ def test_t2_hold_600s(sim600):
     assert sim.t >= 599.9
     assert not sim.disc.plant_dead
     assert float(np.max(drift)) < 0.01
+    assert sim.last_obs.alarms == []  # T2: no alarms over the 600 s hold
 
 
 def test_t3_mass_audit(sim600):
