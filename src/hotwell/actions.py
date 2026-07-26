@@ -53,6 +53,15 @@ ACTION_SCHEMA: tuple[ActionSpec, ...] = tuple(
                    "acknowledge an active alarm by id", "alarm active"),
         ActionSpec("trips.reset", "bool", None, None,
                    "reset latched trips whose condition has cleared", "always"),
+        # 0.2.0: the covered manual-trip pushbuttons every real board carries.
+        # Effect is identical to the corresponding protective action (they call
+        # the same simulator methods); first-out records MANUAL_*.
+        ActionSpec("trips.manual_mft", "bool", None, None,
+                   "manual master fuel trip pushbutton (covered guard)",
+                   "MFT not already latched"),
+        ActionSpec("trips.manual_turbine", "bool", None, None,
+                   "manual turbine trip pushbutton (covered guard)",
+                   "turbine not already tripped"),
     ]
 )
 

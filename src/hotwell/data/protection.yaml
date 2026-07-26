@@ -7,44 +7,56 @@
 # latching: true => stays active after the condition clears, until trips.reset.
 # actions: alarm | mft | turbine_trip | trip_pump (needs target) |
 #          shed_nonvital | safety_valve (hysteresis entry: reseat required).
+# label: optional annunciator legend, 1-2 lines of <= 12 chars (0.2.0);
+#        defaults to the bare id. Display data only — the protection engine
+#        never reads it.
 # CP/FP overload trips are scenario-injected events, not table conditions.
+#
+# NOTE (0.2.0): the operator manual trips (`trips.manual_mft`,
+# `trips.manual_turbine`) are NOT table conditions — they are actions from the
+# panel's covered pushbuttons. They invoke the identical mft / turbine_trip
+# effects and join the first-out record as MANUAL_MFT / MANUAL_TURBINE_TRIP, so
+# they get no window here; the panel labels its own pushbuttons.
 
 conditions:
   - {id: DRUM_LVL_LO,   signal: drum_level, op: lt, setpoint: -0.150, delay: 2.0,
-     latching: false, actions: [alarm]}
+     latching: false, actions: [alarm], label: ["DRUM LEVEL", "LOW"]}
   - {id: DRUM_LVL_LOLO, signal: drum_level, op: lt, setpoint: -0.300, delay: 1.0,
-     latching: true,  actions: [mft, turbine_trip]}
+     latching: true,  actions: [mft, turbine_trip], label: ["DRUM LEVEL", "LOW LOW"]}
   - {id: DRUM_LVL_HI,   signal: drum_level, op: gt, setpoint: 0.150, delay: 2.0,
-     latching: false, actions: [alarm]}
+     latching: false, actions: [alarm], label: ["DRUM LEVEL", "HIGH"]}
   - {id: DRUM_LVL_HIHI, signal: drum_level, op: gt, setpoint: 0.300, delay: 1.0,
-     latching: true,  actions: [turbine_trip]}
+     latching: true,  actions: [turbine_trip], label: ["DRUM LEVEL", "HIGH HIGH"]}
   - {id: DRUM_P_HI,     signal: drum_pressure, op: gt, setpoint: 8.4e+6, delay: 2.0,
-     latching: false, actions: [alarm]}
+     latching: false, actions: [alarm], label: ["DRUM PRESS", "HIGH"]}
   - {id: SAFETY_VALVE,  signal: drum_pressure, op: gt, setpoint: 8.6e+6, delay: 0.0,
-     latching: false, actions: [safety_valve], reseat: 8.3e+6}
+     latching: false, actions: [safety_valve], reseat: 8.3e+6,
+     label: ["SAFETY VALVE", "OPEN"]}
   - {id: DRUM_P_LO,     signal: drum_pressure, op: lt, setpoint: 7.2e+6, delay: 5.0,
-     latching: false, actions: [alarm]}
+     latching: false, actions: [alarm], label: ["DRUM PRESS", "LOW"]}
   - {id: FREQ_LO,       signal: frequency, op: lt, setpoint: 59.5, delay: 2.0,
-     latching: false, actions: [alarm]}
+     latching: false, actions: [alarm], label: ["BUS FREQ", "LOW"]}
   - {id: FREQ_HI,       signal: frequency, op: gt, setpoint: 60.5, delay: 2.0,
-     latching: false, actions: [alarm]}
+     latching: false, actions: [alarm], label: ["BUS FREQ", "HIGH"]}
   - {id: UF_SHED,       signal: frequency, op: lt, setpoint: 58.8, delay: 1.0,
-     latching: false, actions: [shed_nonvital]}
+     latching: false, actions: [shed_nonvital], label: ["UNDERFREQ", "LOAD SHED"]}
   - {id: UF_TRIP,       signal: frequency, op: lt, setpoint: 57.0, delay: 2.0,
-     latching: true,  actions: [turbine_trip]}
+     latching: true,  actions: [turbine_trip], label: ["UNDERFREQ", "TURB TRIP"]}
   - {id: OVERSPEED,     signal: frequency, op: gt, setpoint: 66.0, delay: 0.0,
-     latching: true,  actions: [turbine_trip]}
+     latching: true,  actions: [turbine_trip], label: ["TURBINE", "OVERSPEED"]}
   - {id: FP1_SUCTION,   signal: fp1_npsh_margin, op: lt, setpoint: 0.5, delay: 5.0,
-     latching: true,  actions: [trip_pump], target: fp1}
+     latching: true,  actions: [trip_pump], target: fp1,
+     label: ["FP-1 SUCTION", "LOW NPSH"]}
   - {id: FP2_SUCTION,   signal: fp2_npsh_margin, op: lt, setpoint: 0.5, delay: 5.0,
-     latching: true,  actions: [trip_pump], target: fp2}
+     latching: true,  actions: [trip_pump], target: fp2,
+     label: ["FP-2 SUCTION", "LOW NPSH"]}
   - {id: HOTWELL_LO,    signal: hotwell_level, op: lt, setpoint: -0.5, delay: 5.0,
-     latching: false, actions: [alarm]}
+     latching: false, actions: [alarm], label: ["HOTWELL LVL", "LOW"]}
   - {id: HOTWELL_HI,    signal: hotwell_level, op: gt, setpoint: 0.5, delay: 5.0,
-     latching: false, actions: [alarm]}
+     latching: false, actions: [alarm], label: ["HOTWELL LVL", "HIGH"]}
   - {id: DA_LO,         signal: da_level, op: lt, setpoint: -0.5, delay: 5.0,
-     latching: false, actions: [alarm]}
+     latching: false, actions: [alarm], label: ["DA LEVEL", "LOW"]}
   - {id: DA_HI,         signal: da_level, op: gt, setpoint: 0.5, delay: 5.0,
-     latching: false, actions: [alarm]}
+     latching: false, actions: [alarm], label: ["DA LEVEL", "HIGH"]}
   - {id: COND_P_HI,     signal: cond_pressure, op: gt, setpoint: 12.0e+3, delay: 5.0,
-     latching: false, actions: [alarm]}
+     latching: false, actions: [alarm], label: ["COND PRESS", "HIGH"]}

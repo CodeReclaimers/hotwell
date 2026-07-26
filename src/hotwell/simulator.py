@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 from scipy.optimize import root
 
+from hotwell import data
 from hotwell.actions import check_schema
 from hotwell.audit import AuditAccumulator, AuditReport
 from hotwell.components.pumps import (
@@ -53,10 +53,10 @@ class Simulator:
     """Owns plant, controllers, protection, discrete state, sensors, audit,
     historian, scenario, and the clock."""
 
-    def __init__(self, config: dict | str | Path | None = None,
+    def __init__(self, config: dict | data.Resource | None = None,
                  scenario: Scenario | None = None,
                  seed: int | None = None,
-                 protection_path: str | Path | None = None) -> None:
+                 protection_path: data.Resource | None = None) -> None:
         cfg = config if isinstance(config, dict) else load_config(config)
         self.cfg = cfg
         self.plant = Plant(cfg)
@@ -99,8 +99,8 @@ class Simulator:
         self.last_aux: Aux | None = None
 
     @classmethod
-    def from_scenario(cls, scenario_path: str | Path,
-                      config: dict | str | Path | None = None) -> Simulator:
+    def from_scenario(cls, scenario_path: data.Resource,
+                      config: dict | data.Resource | None = None) -> Simulator:
         sc = load_scenario(scenario_path)
         sim = cls(config, scenario=sc)
         sim.initialize_steady_state(sc.load_mw)
@@ -164,6 +164,34 @@ class Simulator:
         elif key == "trips.reset":
             if value:
                 self._do_reset()
+        elif key == "trips.manual_mft":
+            self._manual_trip(key, value, "MANUAL_MFT", "mft")
+        elif key == "trips.manual_turbine":
+            self._manual_trip(key, value, "MANUAL_TURBINE_TRIP", "turbine_trip")
+
+    def _manual_trip(self, key: str, value, label: str, which: str) -> None:
+        """Operator manual-trip pushbutton (0.2.0). Effect is identical to the
+        protective action of the same name — the same `_do_*` method runs — and
+        the first-out record carries the MANUAL_* label so the panel can show
+        that the operator, not the protection table, initiated the trip.
+
+        Manual trips carry no engine latch, so `trips.reset` clears them once
+        the plant permits (same convention as scenario-injected pump trips, D14).
+        """
+        if not value:
+            return  # pushbutton not pressed; releasing it is not an action
+        if which == "mft":
+            if self.disc.mft:
+                self._reject(key, value, "MFT already latched")
+                return
+            self.engine.record_external_trip(self.t, label)
+            self._do_mft()
+        else:
+            if self.disc.turbine_trip:
+                self._reject(key, value, "turbine already tripped")
+                return
+            self.engine.record_external_trip(self.t, label)
+            self._do_turbine_trip()
 
     def _manual_cmd(self, loop: str, key: str, value: float) -> None:
         pi = self.control.loop(loop)
@@ -234,19 +262,32 @@ class Simulator:
         _, aux = f(y_new, cmds, disc)
         return y_new, aux
 
+    def _do_mft(self) -> None:
+        """Master fuel trip: latch + fuel trip valve slams shut (D12).
+
+        The single implementation behind both the protective action and the
+        operator's manual pushbutton, so the two are identical by construction.
+        """
+        self.disc.mft = True
+        self.y[self.plant.firing.i_x] = 0.0
+
+    def _do_turbine_trip(self) -> None:
+        """Turbine trip: throttle slams, generator breaker opens, and the dead
+        bus drops every motor contactor (D10/D12). Shared with the manual
+        pushbutton exactly as _do_mft is."""
+        self.disc.turbine_trip = True
+        self.y[self.plant.throttle.i_x] = 0.0
+        self.disc.breaker_closed = False
+        for p in PUMP_NAMES:
+            self._trip_pump(p, "bus_dead")
+
     def _apply_protective_actions(self, fired: list[FiredAction]) -> None:
         disc = self.disc
-        y = self.y
         for fa in fired:
             if fa.action == "mft" and not disc.mft:
-                disc.mft = True
-                y[self.plant.firing.i_x] = 0.0  # fuel trip valve slams
+                self._do_mft()
             elif fa.action == "turbine_trip" and not disc.turbine_trip:
-                disc.turbine_trip = True
-                y[self.plant.throttle.i_x] = 0.0  # throttle slams
-                disc.breaker_closed = False       # generator breaker opens
-                for p in PUMP_NAMES:              # bus dead -> motor contactors drop
-                    self._trip_pump(p, "bus_dead")
+                self._do_turbine_trip()
             elif fa.action == "trip_pump" and fa.target is not None:
                 self._trip_pump(fa.target, fa.condition_id)
             elif fa.action == "shed_nonvital":

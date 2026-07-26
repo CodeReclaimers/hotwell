@@ -10,7 +10,7 @@ library only: no server, no UI, no agent.
 - Deterministic: seed + scenario ⇒ bit-identical trajectories.
 - SI units internally (Pa, kg, kg/s, J, K, W, rad/s).
 - Contracts for the later phases: observation spec, action schema, scenario files,
-  data-driven protection tables (`data/protection.yaml`).
+  data-driven protection tables (`src/hotwell/data/protection.yaml`).
 
 ## Install (development)
 
@@ -32,7 +32,7 @@ by `scripts/` and is never imported by the package.
 ## Run a scenario
 
 ```bash
-.venv/bin/python scripts/run_scenario.py scenarios/cp1_trip_unrecovered.yaml --plots out/
+.venv/bin/python scripts/run_scenario.py cp1_trip_unrecovered --plots out/
 ```
 
 ## Regenerate steam property fits

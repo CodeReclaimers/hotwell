@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from hotwell import data
 from hotwell.plant import load_config
 from hotwell.scenario import load_scenario
 from hotwell.simulator import Simulator
@@ -18,7 +19,7 @@ from hotwell.simulator import Simulator
 C1, C2 = "#2a78d6", "#eb6834"  # validated categorical palette, fixed order
 INK, INK_2, SURFACE = "#0b0b0b", "#52514e", "#fcfcfb"
 
-SCENARIO = "scenarios/load_step.yaml"
+SCENARIO = data.builtin_scenarios()["load_step"]
 
 
 def run_model(model: str):

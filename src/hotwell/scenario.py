@@ -7,9 +7,10 @@ minimal extension recorded in HANDOFF).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import yaml
+
+from hotwell import data
 
 EVENT_TYPES = {"trip_pump", "inhibit_start", "sensor_fault", "set_air_ingress",
                "action", "set_load"}
@@ -32,10 +33,9 @@ class Scenario:
     max_t: float
 
 
-def load_scenario(path: str | Path) -> Scenario:
-    """Parse and validate a scenario YAML."""
-    with open(path) as f:
-        raw = yaml.safe_load(f)
+def load_scenario(path: data.Resource) -> Scenario:
+    """Parse and validate a scenario YAML (filesystem path or packaged resource)."""
+    raw = yaml.safe_load(data.read_text(path))
     events = []
     for row in raw.get("events", ()):
         etype = row["type"]

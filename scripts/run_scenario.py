@@ -2,7 +2,10 @@
 """Run a scenario: print audit + first-out, optionally produce the standard
 plot set and a CSV export.
 
-Usage: python scripts/run_scenario.py scenarios/<name>.yaml [--plots out/] [--csv FILE]
+Usage: python scripts/run_scenario.py <name|path.yaml> [--plots out/] [--csv FILE]
+
+<name> resolves against the packaged canonical scenarios (load_step,
+cp1_trip_recovered, cp1_trip_unrecovered); anything else is read as a path.
 
 Plot set (PNG): drum level+pressure, frequency+MW, four flows, inventories,
 valve positions, alarm/trip timeline strip. matplotlib is imported here only —
@@ -13,6 +16,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from hotwell import data
 from hotwell.simulator import Simulator
 
 # Validated categorical palette (dataviz reference, light mode, fixed order).
@@ -21,7 +25,12 @@ STATUS_WARNING, STATUS_CRITICAL = "#fab219", "#d03b3b"
 INK, INK_2, SURFACE = "#0b0b0b", "#52514e", "#fcfcfb"
 
 
-def run(scenario_path: str):
+def resolve(name_or_path: str) -> data.Resource:
+    """A packaged scenario name, else a filesystem path."""
+    return data.builtin_scenarios().get(name_or_path, name_or_path)
+
+
+def run(scenario_path: data.Resource):
     """Run to completion, collecting alarm transitions for the timeline."""
     sim = Simulator.from_scenario(scenario_path)
     transitions: list[tuple[float, str, str]] = []
@@ -234,7 +243,7 @@ def main() -> None:
     ap.add_argument("--csv", type=Path, default=None, metavar="FILE")
     args = ap.parse_args()
 
-    sim, transitions = run(args.scenario)
+    sim, transitions = run(resolve(args.scenario))
     print_report(sim)
     if args.csv:
         args.csv.parent.mkdir(parents=True, exist_ok=True)

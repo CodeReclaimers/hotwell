@@ -2,6 +2,7 @@
 import numpy as np
 import pytest
 
+from hotwell import data
 from hotwell.plant import load_config
 from hotwell.simulator import Simulator
 
@@ -54,7 +55,7 @@ def _load_step_peak(three_element: bool) -> tuple[float, float]:
     cfg = load_config()
     cfg["control"]["drum_level"]["three_element"] = three_element
     from hotwell.scenario import load_scenario
-    sim = Simulator(cfg, scenario=load_scenario("scenarios/load_step.yaml"))
+    sim = Simulator(cfg, scenario=load_scenario(data.builtin_scenarios()["load_step"]))
     sim.initialize_steady_state(sim.scenario.load_mw)
     sim.run(300.0)
     peak = 0.0

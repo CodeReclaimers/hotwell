@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from hotwell import data
 from hotwell import steam_properties as sp
 from hotwell.components.condenser import Condenser, CondenserParams
 from hotwell.components.deaerator import Deaerator, DeaeratorParams
@@ -28,8 +29,6 @@ from hotwell.components.turbine import RotorParams, Turbine, TurbineParams
 from hotwell.components.valves import Actuator, ActuatorParams
 from hotwell.control.loops import Commands
 from hotwell.state import StateRegistry
-
-DEFAULT_CONFIG = Path(__file__).resolve().parent.parent.parent / "configs" / "baseline.yaml"
 
 PUMP_NAMES = ("cp1", "cp2", "fp1", "fp2")
 
@@ -79,9 +78,9 @@ class Aux:
 
 
 def load_config(path: str | Path | None = None) -> dict:
-    """Load a plant parameter YAML (defaults to configs/baseline.yaml)."""
-    with open(path or DEFAULT_CONFIG) as f:
-        return yaml.safe_load(f)
+    """Load a plant parameter YAML (defaults to the packaged baseline)."""
+    src = data.baseline_config_path() if path is None else path
+    return yaml.safe_load(data.read_text(src))
 
 
 class Plant:

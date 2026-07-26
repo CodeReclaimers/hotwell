@@ -2,12 +2,13 @@
 plus protection-engine and historian unit coverage."""
 import numpy as np
 
+from hotwell import data
 from hotwell.protection.interlocks import ProtectionEngine
 from hotwell.protection.tables import load_protection_table
 from hotwell.scenario import load_scenario
 from hotwell.simulator import Simulator
 
-SCEN = "scenarios/cp1_trip_recovered.yaml"
+SCEN = data.builtin_scenarios()["cp1_trip_recovered"]
 
 
 def make_sim(load_mw=60.0, seed=0):

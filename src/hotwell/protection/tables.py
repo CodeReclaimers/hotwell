@@ -6,11 +6,14 @@ from pathlib import Path
 
 import yaml
 
-DEFAULT_TABLE = Path(__file__).resolve().parents[3] / "data" / "protection.yaml"
+from hotwell import data
 
 VALID_ACTIONS = {"alarm", "mft", "turbine_trip", "trip_pump", "shed_nonvital",
                  "safety_valve"}
 TRIP_CLASS = {"mft", "turbine_trip", "trip_pump"}
+
+LABEL_MAX_LINES = 2   # annunciator windows are two-line engraved legends
+LABEL_MAX_CHARS = 12  # per line, at the window's engraved text width
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,12 @@ class Condition:
     actions: tuple[str, ...]
     target: str | None = None   # pump name for trip_pump
     reseat: float | None = None  # hysteresis reseat setpoint (safety valve)
+    label: tuple[str, ...] = ()  # annunciator legend lines; () => use the id
+
+    @property
+    def legend(self) -> tuple[str, ...]:
+        """Annunciator window legend lines (falls back to the bare id)."""
+        return self.label or (self.id,)
 
     @property
     def is_trip(self) -> bool:
@@ -46,10 +55,28 @@ class ProtectionTable:
         raise KeyError(cid)
 
 
+def _parse_label(cid: str, raw_label) -> tuple[str, ...]:
+    """Validate an optional annunciator legend: 1-2 lines, <= 12 chars each."""
+    if raw_label is None:
+        return ()
+    lines = tuple(raw_label) if isinstance(raw_label, (list, tuple)) \
+        else tuple(str(raw_label).splitlines())
+    if not 1 <= len(lines) <= LABEL_MAX_LINES:
+        raise ValueError(f"{cid}: label needs 1-{LABEL_MAX_LINES} lines, got {len(lines)}")
+    for line in lines:
+        if not isinstance(line, str):
+            raise ValueError(f"{cid}: label lines must be strings, got {type(line).__name__}")
+        if len(line) > LABEL_MAX_CHARS:
+            raise ValueError(
+                f"{cid}: label line {line!r} is {len(line)} chars "
+                f"(max {LABEL_MAX_CHARS})")
+    return lines
+
+
 def load_protection_table(path: str | Path | None = None) -> ProtectionTable:
-    """Parse and validate the YAML table."""
-    with open(path or DEFAULT_TABLE) as f:
-        raw = yaml.safe_load(f)
+    """Parse and validate the YAML table (defaults to the packaged table)."""
+    src = data.protection_table_path() if path is None else path
+    raw = yaml.safe_load(data.read_text(src))
     conds = []
     seen: set[str] = set()
     for row in raw["conditions"]:
@@ -71,5 +98,6 @@ def load_protection_table(path: str | Path | None = None) -> ProtectionTable:
             id=cid, signal=row["signal"], op=row["op"],
             setpoint=float(row["setpoint"]), delay=float(row["delay"]),
             latching=bool(row["latching"]), actions=actions,
-            target=row.get("target"), reseat=row.get("reseat")))
+            target=row.get("target"), reseat=row.get("reseat"),
+            label=_parse_label(cid, row.get("label"))))
     return ProtectionTable(conditions=tuple(conds))

@@ -8,11 +8,14 @@ is the honest comparison (HANDOFF, T6 note).
 """
 import time
 
+from hotwell import data
 from hotwell.simulator import Simulator
+
+SCENARIOS = data.builtin_scenarios()
 
 
 def test_t6_droop():
-    sim = Simulator.from_scenario("scenarios/load_step.yaml")
+    sim = Simulator.from_scenario(SCENARIOS["load_step"])
     sim.run(295.0)
     f_pre = sim.last_obs.values["frequency"]
     pe_pre = sim.last_aux.p_elec
@@ -31,7 +34,7 @@ def test_t6_droop():
 
 
 def test_t7_unrecovered_cascade():
-    sim = Simulator.from_scenario("scenarios/cp1_trip_unrecovered.yaml")
+    sim = Simulator.from_scenario(SCENARIOS["cp1_trip_unrecovered"])
     obs = sim.run()
     fo = sim.engine.first_out
     print("first_out:", [(f"{t:.2f}", cid) for t, cid in fo])
@@ -51,7 +54,7 @@ def test_t7_unrecovered_cascade():
 
 
 def test_t8_recovered():
-    sim = Simulator.from_scenario("scenarios/cp1_trip_recovered.yaml")
+    sim = Simulator.from_scenario(SCENARIOS["cp1_trip_recovered"])
     t_start = 312.0  # scripted standby start
     sim.run(t_start + 300.0)
     v = sim.last_obs.values

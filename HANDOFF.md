@@ -1,5 +1,40 @@
 # HANDOFF — hotwell phase 1
 
+## 0.2.0 — panel precursor (2026-07-26)
+
+Released for the `hotwell-panel` repo per PLAN-panel.md §11. **No physics
+changed**; the canonical casualty timings below are unchanged (verified from a
+wheel install: FP1_SUCTION still fires at +92.65 s after the CP-1 trip).
+Suite: `55 passed` (37 from 0.1.0 unchanged + 18 new), ruff clean.
+Full detail in `CHANGELOG.md`.
+
+1. **Manual trip actions** `trips.manual_mft`, `trips.manual_turbine`. Identical
+   in effect to the protective actions — `_do_mft` / `_do_turbine_trip` were
+   extracted from `_apply_protective_actions` as a behavior-neutral refactor
+   (37 tests green before the actions were added), so both paths run the same
+   code. First-out records `MANUAL_MFT` / `MANUAL_TURBINE_TRIP`. Re-pressing an
+   already-latched trip is rejected-and-recorded. Manual trips hold no engine
+   latch, so `trips.reset` clears them — same convention as scenario-injected
+   pump trips (D14).
+2. **Annunciator legends**: optional `label:` (1–2 lines, ≤ 12 chars) per
+   protection-table entry, defaulting to the id via `Condition.legend`. All 19
+   shipped conditions carry one; widest line is 12 chars (`SAFETY VALVE`).
+   Display-only — the engine never reads it.
+3. **Package-data migration**: `configs/baseline.yaml`, `data/protection.yaml`,
+   and `scenarios/*.yaml` now live in `src/hotwell/data/`, behind
+   `hotwell.data.{baseline_config_path, protection_table_path,
+   builtin_scenarios, read_text}`. All loaders default to the packaged copies
+   and still accept a path override. `DEFAULT_CONFIG` and `DEFAULT_TABLE` are
+   gone (both were repo-root-relative).
+
+**Testing note worth keeping.** A chdir-to-tmpdir test does *not* prove the
+migration: under an editable install `Path(__file__).parents[3]` still resolves
+into the checkout, so such a test passes against the pre-migration code.
+`tests/test_packaging.py` instead asserts each default resource resolves inside
+`Path(hotwell.__file__).parent`, which the old paths cannot satisfy, and the
+release was additionally validated by installing a built wheel into a throwaway
+venv and running a canonical scenario from a bare directory.
+
 ## Status summary
 
 **M4 complete** (on Alan's explicit go-ahead, 2026-07-26; D5/D15 ratified). The
@@ -102,7 +137,7 @@ Sizing-rule compliance (achieved):
 
 ## Parameter / tuning decisions and rationale
 
-- **Control gains** (`configs/baseline.yaml`, `control:` section) — one line each:
+- **Control gains** (`src/hotwell/data/baseline.yaml`, `control:` section) — one line each:
   - Drum level PI kp=3.0, ki=0.05 (Ti=60 s): valve-to-level plant is an integrator
     (~0.013 (m/s)/valve-unit); gives ~20 s closed-loop TC, no oscillation at 20 Hz.
   - Drum pressure PI kp=1.8e-7 1/Pa, ki=3e-9 (Ti=60 s): drum energy storage ≈534 J/Pa;
@@ -280,7 +315,23 @@ table's ≈180 MW) and D15 (T6 evaluated against measured ΔP_e).
 - The action surface is `hotwell.actions.ACTION_SCHEMA`; every key carries bounds and
   a validity note. Rejections come back as recorded reasons — the panel can surface
   them verbatim as operator feedback.
-- `data/protection.yaml` ids are the annunciator window list; the timeline strip in
+- **Alarm transitions are not in the fired-action list.** `ProtectionEngine._fire`
+  emits a `FiredAction` only for non-`alarm` actions, so pure-alarm conditions
+  (DRUM_P_HI, DA_LO, HOTWELL_HI, DRUM_LVL_LO — most of the casualty cascade above)
+  produce nothing there, and `alarm_states()` returns only non-clear entries, so a
+  clear shows up as a *disappearance*. A consumer wanting activate/ack/clear edges
+  must diff `Observation.alarms` step over step; `scripts/run_scenario.py` has the
+  reference implementation (it builds the timeline strip that way).
+- **First-out entries are not all protection-table ids.** `record_external_trip`
+  appends free-form labels — `CP1_TRIP:overload`, `FP1_TRIP:FP1_SUCTION`,
+  `MANUAL_MFT` — and the canonical casualty's *initiator* is one of them. A panel
+  that only maps first-out onto annunciator windows will fail to show the initiating
+  event; it needs a separate first-out display path.
+- **Actions apply before scenario events within a step?** No — `step()` runs
+  `_apply_scenario_events()` first, then submitted actions. Anything replaying a
+  live session as a scenario must preserve that relative order for ticks that carry
+  both, or the replay diverges.
+- `src/hotwell/data/protection.yaml` ids are the annunciator window list; the timeline strip in
   `run_scenario.py` is a preview of the annunciator history display.
 - Historian `query(signals, t0, t1, max_points)` is strip-chart-shaped; 20 Hz for the
   trailing 10 min, 1 Hz beyond — matches a panel chart recorder well.
