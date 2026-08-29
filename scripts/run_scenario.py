@@ -241,10 +241,19 @@ def main() -> None:
     ap.add_argument("scenario")
     ap.add_argument("--plots", type=Path, default=None, metavar="DIR")
     ap.add_argument("--csv", type=Path, default=None, metavar="FILE")
+    ap.add_argument("--events", action="store_true",
+                    help="print every alarm transition (the cascade table)")
     args = ap.parse_args()
 
     sim, transitions = run(resolve(args.scenario))
     print_report(sim)
+    if args.events:
+        # The HANDOFF cascade tables are transcribed from this output — keep
+        # it regenerable (CLAUDE.shared: reported numbers come from committed
+        # code, not one-off snippets).
+        print("alarm transitions:")
+        for t, aid, state in transitions:
+            print(f"  t={t:9.2f}  {aid:<16s} {state}")
     if args.csv:
         args.csv.parent.mkdir(parents=True, exist_ok=True)
         sim.historian.export_csv(args.csv)

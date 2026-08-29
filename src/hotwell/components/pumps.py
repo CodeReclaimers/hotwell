@@ -36,6 +36,9 @@ class PumpParams:
     k_suction: float  # individual suction line friction head [m/(m3/s)^2]
     i_rated: float   # motor current at rated hydraulic power [A] (display proxy)
     rated_fraction: float = 1.0  # per-pump rated fraction of service flow
+    #: Motor electrical draw at rated hydraulic power [W]. Feeds the bus as
+    #: station-service load (0.3.0); 0 disables it (pre-0.3 behavior).
+    p_motor_rated: float = 0.0
 
 
 class PumpUnit:

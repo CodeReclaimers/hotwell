@@ -432,8 +432,20 @@ class Simulator:
         p_rated = cfg["design"]["p_rated"]
         load_w = load_mw * 1e6
         vf_frac = cfg["loads"]["vital_fraction"]
-        plant.loads.vital.p0 = vf_frac * load_w
-        plant.loads.nonvital.p0 = (1.0 - vf_frac) * load_w
+
+        # load_mw is the commanded GROSS electrical output. Station service
+        # (running pump motors, 0.3.0) is part of it, so the abstract blocks
+        # absorb the remainder — that keeps the droop equilibrium exactly at
+        # f0 with load_ref = load_w, and mw_out reading load_mw at t = 0.
+        # The pump draw depends on the solved flows, so the blocks are set by
+        # fixed-point iteration around the root solve below (2 passes reach
+        # sub-watt agreement; the dependence through the flows is weak).
+        def set_blocks(p_station_service: float) -> None:
+            p_blocks = load_w - p_station_service
+            plant.loads.vital.p0 = vf_frac * p_blocks
+            plant.loads.nonvital.p0 = (1.0 - vf_frac) * p_blocks
+
+        set_blocks(0.0)
         self.control.load_ref = load_w
 
         tp = plant.turbine.tp
@@ -511,10 +523,37 @@ class Simulator:
         # derivative rows are degenerate (cmd := position) and are replaced by
         # the loop-equilibrium conditions in the last five rows.
         u0 = np.concatenate([y, [0.6]])
-        sol = root(residual, u0 / u_char, method="hybr", options={"xtol": 1e-13})
-        if not sol.success:
-            raise RuntimeError(f"steady-state root failed: {sol.message}")
-        u_sol = sol.x * u_char
+        u_start = u0 / u_char
+        for _pass in range(6):
+            sol = root(residual, u_start, method="hybr",
+                       options={"xtol": 1e-13})
+            # hybr reports "not making good progress" when warm-started at an
+            # already-converged point (later fixed-point passes) — and its
+            # exact trajectory there depends on the path-solve warm-start
+            # caches, so the flag is not reproducible. Judge each solve by the
+            # residual it reached; the authoritative equilibrium check on the
+            # final state is below.
+            if not sol.success and float(np.max(np.abs(sol.fun))) > 1e-6:
+                raise RuntimeError(f"steady-state root failed: {sol.message}")
+            u_start = sol.x
+            u_sol = sol.x * u_char
+            # Recompute station service at the solved flows and re-anchor the
+            # blocks; warm-started re-solve. The dependence of the pump draw
+            # on the block setting is weak (through the solved flows, ~1/80
+            # per pass), so this contracts fast: 1 MW -> 13 kW -> 0.2 kW.
+            yy = u_sol[:reg.n]
+            cmds_p = Commands(fw_cmd=yy[i_fw], throttle_cmd=yy[i_thr],
+                              firing_cmd=yy[i_fir], lcv_x=float(u_sol[reg.n]))
+            _, aux_p = plant.deriv(yy, cmds_p, disc)
+            p_blocks_now = plant.loads.vital.p0 + plant.loads.nonvital.p0
+            # 1 kW agreement: invisible at the 0.1 MW display resolution and
+            # a sub-microhertz droop offset. Break BEFORE re-anchoring, so the
+            # returned state is an exact equilibrium of the blocks as set.
+            if abs((load_w - aux_p.p_station_service) - p_blocks_now) < 1e3:
+                break
+            set_blocks(aux_p.p_station_service)
+        else:
+            raise RuntimeError("station-service fixed point did not converge")
         self.y = u_sol[:reg.n].copy()
         lcv_x = float(u_sol[reg.n])
 
@@ -524,6 +563,13 @@ class Simulator:
                         throttle_cmd=float(self.y[i_thr]),
                         firing_cmd=float(self.y[i_fir]), lcv_x=lcv_x)
         self.commands = cmds
+        # Authoritative equilibrium gate (the T2 measure), independent of
+        # hybr's progress bookkeeping above.
+        resid_norm = self.steady_state_residual_norm()
+        if resid_norm > 1e-7:
+            raise RuntimeError(
+                f"steady-state init not at equilibrium: scaled |ydot|_max = "
+                f"{resid_norm:.3e} (limit 1e-7)")
         _, aux = plant.deriv(self.y, cmds, disc)
         self.control.drum_level.initialize(cmds.fw_cmd, aux.drum_level)
         if self.control.three_element:

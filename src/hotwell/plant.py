@@ -24,7 +24,15 @@ from hotwell.components.drum import (
     TwoStateDrumParams,
 )
 from hotwell.components.loads import LoadBlock, Loads
-from hotwell.components.pumps import G, PathFlowResult, PumpParams, PumpUnit, solve_path_flow
+from hotwell.components.pumps import (
+    MODE_RUNNING,
+    MODE_STARTING,
+    G,
+    PathFlowResult,
+    PumpParams,
+    PumpUnit,
+    solve_path_flow,
+)
 from hotwell.components.turbine import RotorParams, Turbine, TurbineParams
 from hotwell.components.valves import Actuator, ActuatorParams
 from hotwell.control.loops import Commands
@@ -67,7 +75,8 @@ class Aux:
     m_fw: float            # [kg/s]
     q_fire: float          # [W] effective heat to fluid
     p_mech: float          # [W]
-    p_elec: float          # [W]
+    p_elec: float          # [W] incl. station service
+    p_station_service: float  # [W] running pump motor draw (part of p_elec)
     p_cond: float          # [Pa]
     q_cond_duty: float     # [W]
     p_damping: float       # [W] mechanical damping loss
@@ -240,8 +249,17 @@ class Plant:
 
         omega = yl[self.turbine.i_omega]
         omega0 = self.turbine.rp.omega0
+        p_ss = (
+            self._pump_motor_power("cp1", disc.pump_modes["cp1"],
+                                   res_c.q[0], res_c.head, rho_c)
+            + self._pump_motor_power("cp2", disc.pump_modes["cp2"],
+                                     res_c.q[1], res_c.head, rho_c)
+            + self._pump_motor_power("fp1", disc.pump_modes["fp1"],
+                                     res_f.q[0], res_f.head, rho_da)
+            + self._pump_motor_power("fp2", disc.pump_modes["fp2"],
+                                     res_f.q[1], res_f.head, rho_da))
         p_e = self.loads.p_elec(omega, omega0, disc.nonvital_connected,
-                                disc.breaker_closed)
+                                disc.breaker_closed, p_ss)
         self.turbine.deriv(yl, ydot, x_thr, p_drum, p_e)
         self.condenser.deriv(yl, ydot, m_exh, m_cond)
         da.deriv(yl, ydot, m_cond, m_peg, m_fw)
@@ -257,7 +275,8 @@ class Plant:
             p_drum=p_drum, drum_level=drum_out.level, h_g_drum=h_g,
             m_throttle=m_thr, m_exhaust=m_exh, m_relief=m_relief,
             m_peg=m_peg, m_cond=m_cond, m_fw=m_fw, q_fire=q_fire,
-            p_mech=self.turbine.p_mech(yl), p_elec=p_e, p_cond=p_cond,
+            p_mech=self.turbine.p_mech(yl), p_elec=p_e,
+            p_station_service=p_ss, p_cond=p_cond,
             q_cond_duty=self.condenser.q_cond(m_exh, h_exh, p_cond),
             p_damping=self.turbine.rp.d_m * (omega - omega0) * omega,
             hw_level_rel=hw_abs - self.condenser.p.hw_level_nominal,
@@ -283,6 +302,21 @@ class Plant:
         p_hyd = rho * G * head * q
         p = self.pumps[name].p
         return p.i_rated * (0.25 + 0.75 * p_hyd / self._p_hyd_rated[name])
+
+    def _pump_motor_power(self, name: str, mode: str, q: float, head: float,
+                          rho: float) -> float:
+        """Motor electrical draw [W] — station-service load on the islanded
+        bus. Same 25% no-load floor + hydraulic-power-proportional shape as
+        the ammeter proxy, so wattage and current agree by construction. A
+        stopped or tripped pump draws nothing, even while coasting down (its
+        contactor is open); motor inrush at start is not modeled."""
+        if mode not in (MODE_STARTING, MODE_RUNNING):
+            return 0.0
+        p = self.pumps[name].p
+        if p.p_motor_rated <= 0.0:
+            return 0.0
+        p_hyd = rho * G * head * q
+        return p.p_motor_rated * (0.25 + 0.75 * p_hyd / self._p_hyd_rated[name])
 
     def truth(self, t: float, y, aux: Aux, disc: Discrete) -> dict[str, float]:
         """Assemble the truth value for every instrument in the observation spec."""

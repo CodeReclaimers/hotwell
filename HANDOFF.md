@@ -1,5 +1,26 @@
 # HANDOFF — hotwell phase 1
 
+## 0.3.0 — station-service pump loads (2026-08-29)
+
+Requested from panel play: starting a pump did not move the MW meter. Running
+pump motors now load the islanded bus (`CHANGELOG.md` has the mechanism and
+config keys). Key semantics: **scenario `load_mw` remains the commanded gross
+output** — the abstract blocks absorb `load_mw − station_service` at init, so
+the 60 Hz droop equilibrium and the §5.1 display anchors are unchanged
+(sensed at t = 0: mw_out 60.000 MW, 60.0000 Hz, steam 76.900, feed 87.100
+kg/s). Suite: `61 passed` (55 from 0.2.0 + 6 new), ruff clean.
+
+Magnitudes at 60 MW: station service 1040.7 kW (CP-1 + FP-1). FP-2 start
+moves the meter (+0.33 MW settled); CP-2 start is +23 kW — real, but below
+the 0.1 MW meter resolution (honest for a 40 m-head condensate system; the
+ammeter is the visible cue). Trip effects now include losing ~1 MW of motor
+load when a feed pump trips mid-cascade.
+
+The canonical timings below were re-measured under 0.3.0
+(`scripts/run_scenario.py <scenario> --events`); every shift is ≤ 0.2 s and
+the first-out chains are unchanged. 0.2.0 session hashes do not reproduce
+under 0.3.0 (physics change).
+
 ## 0.2.0 — panel precursor (2026-07-26)
 
 Released for the `hotwell-panel` repo per PLAN-panel.md §11. **No physics
@@ -88,26 +109,34 @@ docstring.
 
 `cp1_trip_unrecovered` (CP-1 overload trip at t = 300 s), full annunciator sequence:
 
+(Re-measured under 0.3.0 station-service loads, 2026-08-29 —
+`python scripts/run_scenario.py cp1_trip_unrecovered --events`. Every event
+moved ≤ 0.2 s from the 0.2.0 table; the sequence and first-out are identical.)
+
 | t rel. CP-1 trip | Event | Target |
 |---|---|---|
-| +19.9 s | DRUM_P_HI alarm (pegging-steam demand lost, transient; clears ~+40 s) | — |
+| +19.6 s | DRUM_P_HI alarm (pegging-steam demand lost, transient; clears ~+42 s) | — |
 | +23.2 s | DA_LO alarm (DA draining) | — |
-| +57.2 s | HOTWELL_HI alarm (condensate backing up) | — |
-| **+92.7 s** | **FP1_SUCTION trip** (NPSH margin < 0.5 m sustained 5 s) | **45–120 s** ✓ |
+| +57.3 s | HOTWELL_HI alarm (condensate backing up) | — |
+| **+92.8 s** | **FP1_SUCTION trip** (NPSH margin < 0.5 m sustained 5 s) | **45–120 s** ✓ |
 | +98.0 s | SAFETY_VALVE lifts (feed lost at full steam draw; cycles ~5×) | believable (see D16) |
 | +112.5 s | DRUM_LVL_LO alarm | — |
-| **+127.4 s** | **DRUM_LVL_LOLO → MFT + turbine trip → bus dead → plant_dead** | required ✓ |
+| **+127.3 s** | **DRUM_LVL_LOLO → MFT + turbine trip → bus dead → plant_dead** | required ✓ |
 
-The DA buffer consumes ≈85 of the 92.7 s to first trip, as the plan intends.
+The DA buffer consumes ≈85 of the 92.8 s to first trip, as the plan intends.
 First-out: CP1_TRIP:overload → FP1_SUCTION → FP1_TRIP:FP1_SUCTION → DRUM_LVL_LOLO.
 
-`cp1_trip_recovered` (CP-2 started +12 s): worst FP NPSH margin 2.30 m (trip at
-0.5 m — comfortable no-trip margin), zero alarms, all levels back in tight bands by
-+78 s after the standby start (limit 300 s).
+`cp1_trip_recovered` (CP-2 started +12 s): worst FP NPSH margin 2.3 m over the
+whole run (trip at 0.5 m — comfortable no-trip margin; min of the
+`fp*_npsh_margin` columns in `run_scenario.py cp1_trip_recovered --csv`),
+zero alarms, levels at +300 s after the standby start: drum +1.0 mm,
+DA +0.002 m, HW −0.003 m (`test_t8_recovered` print; limit ±50/±100 mm).
 
-`load_step` (+6 MW on non-vital at t = 300 s): f settles 60.000 → 59.730 Hz; minimum
-transient 59.41 Hz for < 2 s, so not even a transient FREQ_LO annunciation; drum
-pressure dips to 7.67 MPa (alarm at 7.2); drum level max excursion −16 mm.
+`load_step` (+6 MW on non-vital at t = 300 s, 0.3.0 figures from
+`run_scenario.py load_step --csv` extrema): f settles 60.000 → 59.690 Hz;
+minimum transient 59.32 Hz held under FREQ_LO's 2 s delay, so still no
+annunciation (`--events` prints zero transitions); drum pressure dips to
+7.63 MPa (alarm at 7.2); drum level max excursion −19 mm.
 
 ## Reference design point, achieved values
 

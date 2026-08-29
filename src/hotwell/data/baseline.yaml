@@ -65,8 +65,8 @@ deaerator:
   z_da: 11.0              # m — tank bottom above FP suction
 
 loads:
-  vital_p0: 12.0e+6       # W at rated (placeholder; set from load_mw at init)
-  nonvital_p0: 48.0e+6    # W
+  vital_p0: 12.0e+6       # W at rated (placeholder; init sets blocks to load_mw
+  nonvital_p0: 48.0e+6    # W   minus station service — see initialize_steady_state)
   k_pf: 1.5               # frequency dependence
   vital_fraction: 0.2
 
@@ -89,6 +89,8 @@ pumps:
     npsh_b: 133.0         # m/(m3/s)^2
     k_suction: 33.0       # m/(m3/s)^2 individual suction line friction
     i_rated: 60.0         # A motor current proxy at rated hydraulic power
+    p_motor_rated: 40.0e+3  # W motor draw at rated hydraulics (30.3 kW hyd,
+                            #   eta ~0.76); station-service load on the bus
   feed:                   # 2 x 100%: FP-1, FP-2
     q_rated: 0.0916       # m3/s (~87 kg/s at 111 degC, service rated)
     # pump's own rated point is 0.110 m3/s (20% flow margin over service);
@@ -101,6 +103,8 @@ pumps:
     npsh_b: 59.6          #     so DA drain-down erodes margin through the 0.5 m trip
     k_suction: 59.6       # m/(m3/s)^2 (0.5 m at rated)
     i_rated: 400.0        # A
+    p_motor_rated: 1.0e+6   # W motor draw at rated hydraulics (821 kW hyd,
+                            #   eta ~0.82); station-service load on the bus
 
 network:
   z_da_inlet: 14.0        # m — DA condensate inlet above CP suction
