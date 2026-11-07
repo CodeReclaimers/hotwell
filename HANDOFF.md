@@ -364,6 +364,25 @@ answered there). Milestone status is in `.plan-checkpoint.md`.
   Design choices (ask-vs-decide): step kinds do/hold/trim/ack_active; trim gain
   20 MW/Hz (plant 21.5: monotone convergence); `alarm.ack` one per tick (one
   key per action dict); fixed 5 s reaction by default.
+- **M7 complete: plant description and operator manuals** (`docs/manual/`,
+  nine chapters). Every table is generated (`scripts/gen_manual.py`); the
+  prose is written from the code, and its claims carry `<!-- src: path::Symbol -->`
+  comments that the sync test resolves. **Deviations from the plan's wording
+  (recorded):** (1) provenance cites `path::Symbol`, not `file:line`, because
+  lines rot on every edit and symbols can be checked mechanically; (2) the tables
+  name protection actions in operator words ("trip CP-1", "master fuel trip"),
+  not the engine's identifiers, which the hygiene check flagged because
+  `trip_pump` is also a fault-event name; (3) `hotwell.units` keeps pump
+  currents in amperes, not the panel's % rated. The panel keeps its own copy of
+  the conversion table until its migration (two copies; constants identical by
+  construction).
+  Gate mutations (ad-hoc): a typo'd instrument name in prose → the name gate
+  fails; a hand-edited setpoint → the staleness gate fails. The first name
+  mutation never applied (the sed pattern crossed a line break), so it was
+  redone with a confirmed edit.
+  **For the bench repo:** the manual is an ablation knob (with/without). The
+  abnormal procedures are symptom-based by construction and the test forbids
+  fault-event names.
 
 ## 0.3.0 — station-service pump loads (2026-08-29)
 

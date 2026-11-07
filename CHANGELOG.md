@@ -49,7 +49,23 @@
 - `scripts/level_mode_ringdown.py`: ring-down / damping estimate of the slow
   drum-level mode under three-element control.
 
-### Added (M6 — procedures and the background operator; hash-neutral)
+### Added (M7 — plant description and operator manuals; no simulator change)
+
+- `docs/manual/` 00–08: index/conventions, plant description, instrumentation,
+  controls, protection, normal procedures (rendered from the procedure YAML),
+  alarm response (one section per window), symptom-based abnormal procedures
+  AOP-01..09, model limitations.
+- `scripts/gen_manual.py [--check]`: regenerates the GENERATED blocks (design
+  point from a live steady-state init, equipment, instruments, actions, loops,
+  protection, procedures, per-window `arp_<ID>` headers).
+- `hotwell.units`: SI → customary affine table, constants copied exactly from
+  hotwell-panel `displayunits.py` (condenser as inHg vacuum; currents in A).
+- `tests/test_manual_sync.py`: blocks current; windows ↔ sections; procedures
+  rendered; every backticked name real (templates resolved); every
+  `<!-- src: path::Symbol -->` resolves; units cover the instruments exactly;
+  no fault-injection event names (answer-key hygiene).
+
+
 
 - `hotwell/data/procedures/*.yaml`: NOP-01 condensate pump swap, NOP-02 feed
   pump swap (templated `{from}`/`{to}`, either direction), NOP-03 frequency
