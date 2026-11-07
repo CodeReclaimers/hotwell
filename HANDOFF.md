@@ -1,5 +1,21 @@
 # HANDOFF — hotwell phase 1
 
+## 0.4.0 — in progress (branch `release-0.4`, 2026-11-07)
+
+Benchmark-readiness release per `PLAN-0.4-benchmark-core.md` (approved, Q1–Q5
+answered there). Milestone status is in `.plan-checkpoint.md`.
+
+- **M0 complete — golden hashes.** Six canonical runs (3 scenarios × 2
+  fidelities) pinned from pristine 0.3.0 in `tests/test_golden_hashes.py`;
+  regenerate with `scripts/golden_hashes.py [SRC]`. Run lengths: two_state
+  `cp1_trip_unrecovered` dies at t = 427.30 s (MFT +127.3 s after the trip),
+  AB+3E at 522.90 s (+222.9 s); the other four run to max_t = 900 s.
+  New `Simulator.observation_hash` covers what a consumer saw.
+  **The two hashes differ in sensitivity:** a 1e-7 relative kp change moves the
+  state hash but not the observation hash (quantization absorbs sub-LSB
+  differences in truth). Use the state hash for "physics unchanged" and the
+  observation hash for "the exported data is unchanged".
+
 ## 0.3.0 — station-service pump loads (2026-08-29)
 
 Requested from panel play: starting a pump did not move the MW meter. Running

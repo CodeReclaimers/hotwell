@@ -35,7 +35,13 @@ from hotwell.plant import PUMP_NAMES, Aux, Discrete, Plant, load_config
 from hotwell.protection.interlocks import FiredAction, ProtectionEngine
 from hotwell.protection.tables import load_protection_table
 from hotwell.scenario import Scenario, load_scenario
-from hotwell.sensors import Observation, RejectedAction, SensorBank, SensorFault
+from hotwell.sensors import (
+    Observation,
+    RejectedAction,
+    SensorBank,
+    SensorFault,
+    observation_bytes,
+)
 
 DT = 0.05  # s — fixed step, locked decision
 TWO_PI = 6.283185307179586
@@ -76,6 +82,7 @@ class Simulator:
         self.rejected: list[RejectedAction] = []
         self.historian: Historian | None = None
         self._hash = hashlib.sha256()
+        self._obs_hash = hashlib.sha256()  # 0.4.0: over every returned observation
 
         c = cfg["control"]
         rp = self.plant.turbine.rp
@@ -395,6 +402,7 @@ class Simulator:
         self._record(aux, sensed)
         self.audit_acc.accumulate(aux.m_relief, self.dt)
         self._hash.update(self.y.tobytes())
+        self._obs_hash.update(observation_bytes(obs))
         self.last_obs = obs
         self.last_aux = aux
         return obs
@@ -415,6 +423,14 @@ class Simulator:
     def state_history_hash(self) -> str:
         """SHA-256 over every post-step state vector so far (T5)."""
         return self._hash.hexdigest()
+
+    @property
+    def observation_hash(self) -> str:
+        """SHA-256 over every observation `step()` has returned so far
+        (encoding: `hotwell.sensors.observation_bytes`). The state hash covers
+        the plant; this one covers what a consumer actually saw — they diverge
+        in meaning once sensor noise exists (0.4.0)."""
+        return self._obs_hash.hexdigest()
 
     # ------------------------------------------------------------ steady state
 

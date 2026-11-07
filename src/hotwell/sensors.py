@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
+
 
 @dataclass(frozen=True)
 class InstrumentSpec:
@@ -71,6 +73,25 @@ class Observation:
     alarms: list[tuple[str, str]]          # (alarm id, state) — active/acknowledged
     indications: dict[str, bool | str]     # run lights, breaker/trip flags (honest)
     plant_dead: bool = False
+
+
+def observation_bytes(obs: Observation) -> bytes:
+    """Canonical byte encoding of one observation (0.4.0, M0).
+
+    Feeds `Simulator.observation_hash`; public so external consumers (the
+    bench repo's dump exporter) can hash what they export the same way.
+    Encoding: the sensed values as float64 in `OBSERVATION_SPEC` order, then
+    each indication in sorted-key order as ``key=value\\0`` with bools as
+    ``1``/``0`` and strings as UTF-8. Alarms and `plant_dead` are not included.
+    """
+    out = np.array([obs.values[s.name] for s in OBSERVATION_SPEC],
+                   dtype=np.float64).tobytes()
+    parts = [out]
+    for k in sorted(obs.indications):
+        v = obs.indications[k]
+        enc = (b"1" if v else b"0") if isinstance(v, bool) else str(v).encode()
+        parts.append(k.encode() + b"=" + enc + b"\x00")
+    return b"".join(parts)
 
 
 class SensorBank:

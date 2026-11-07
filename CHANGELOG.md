@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0 — unreleased (branch `release-0.4`, plan `PLAN-0.4-benchmark-core.md`)
+
+### Added (M0 — no behaviour change)
+
+- `Simulator.observation_hash`: SHA-256 over every observation `step()`
+  returns, encoded by the new public `hotwell.sensors.observation_bytes`
+  (sensed values as float64 in `OBSERVATION_SPEC` order, then indications in
+  sorted-key order as `key=value\0`; alarms and `plant_dead` excluded). The
+  existing `state_history_hash` is unchanged.
+- `tests/test_golden_hashes.py`: state and observation hashes plus step
+  counts for the three canonical scenarios × {two_state + single-element,
+  astrom_bell + three-element}, pinned from 0.3.0 (`9464eb2`). Every 0.4.0
+  milestone except M2 must leave them unchanged.
+- `scripts/golden_hashes.py`: regenerates those values independently
+  (observation hash computed outside the simulator), optionally against
+  another checkout's `src/`.
+
 ## 0.3.0 — 2026-08-29
 
 Station-service pump motor loads on the islanded bus. **Physics change**:
