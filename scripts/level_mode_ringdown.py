@@ -2,9 +2,10 @@
 """Ring-down of the slow drum-level mode under three-element feedwater control.
 
 Diagnostic for the instability the M4 quiet-day run exposed (HANDOFF, 0.4.0
-"known issue: AB + 3E slow level mode"). Noise-free: +6 MW stepped onto the
-non-vital block at t = 300 s and held; TRUE drum level recorded at 1 Hz;
-extrema of its 60 s moving average, relative to the last hour's mean.
+"known issue: AB + 3E slow level mode"). Noise-free: the non-vital block's
+demand set to 54 MW at t = 300 s (+6.83 MW from its 47.17 MW init) and held;
+TRUE drum level recorded at 1 Hz; extrema of its 60 s moving average, relative
+to the last hour's mean.
 
 Usage:
     python scripts/level_mode_ringdown.py [--drum two_state|astrom_bell]

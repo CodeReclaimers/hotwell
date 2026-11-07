@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Documentation (no behaviour change; all hashes unchanged)
+
+- `load_step` re-documented as what it has been since 0.3.0: the non-vital
+  demand goes 47.17 MW (after station service) → 54 MW, a **+6.83 MW** step
+  (ΔP_e settles at +6.36 MW, f 0.32 Hz low). The scenario comments, the T6 and
+  drum test docstrings, and the descriptions in `level_mode_ringdown.py`,
+  `compare_drums.py`, `test_m5_faults.py` and `baseline.yaml` said +6 MW / +10 %.
+- HANDOFF: the T2 steady-state drift that appeared in 0.3.0 (`9464eb2`) is
+  recorded under "For future investigation".
+
 ## 0.4.0 — 2026-11-07
 
 **Upgrade notes (read first).**

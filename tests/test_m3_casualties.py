@@ -2,7 +2,9 @@
 
 T6 note: the analytic droop relation is evaluated against the MEASURED change
 in electrical power. With an islanded bus and load frequency dependence
-(k_pf = 1.5), the commanded +6 MW step settles to a ~5.55 MW actual change;
+(k_pf = 1.5), the commanded step (+6.83 MW since 0.3.0: the non-vital block
+starts at 47.17 MW after station service and is set to 54 MW) settles to a
+~6.36 MW actual change (5.55 MW of a +6 MW step in 0.1.0-0.2.0);
 the droop law ties frequency to actual mechanical/electrical power, so that
 is the honest comparison (HANDOFF, T6 note).
 """

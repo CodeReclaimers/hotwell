@@ -61,7 +61,7 @@ def main() -> None:
         ax.set_ylabel(ylab, color=INK)
         ax.tick_params(colors=INK_2)
         ax.legend(loc="best", fontsize=8, framealpha=0.9)
-    a1.set_title("load_step (+6 MW at t=300 s) — drum model comparison\n"
+    a1.set_title("load_step (+6.83 MW at t=300 s) — drum model comparison\n"
                  "Astrom-Bell swells on the demand step; two-state is monotone",
                  color=INK, fontsize=11)
     a1.set_xlim(280, 600)

@@ -163,8 +163,9 @@ def _throttle_step_run(rate_factor):
 
 
 def test_actuator_slow_limits_slew_and_deepens_the_frequency_dip():
-    """Throttle slew 1.0/s -> 0.05/s, +6 MW step. The droop governor's demand
-    gets to the valve late, so frequency dips further; no protective action."""
+    """Throttle slew 1.0/s -> 0.05/s, non-vital demand set to 54 MW (+6.83 MW).
+    The droop governor's demand gets to the valve late, so frequency dips
+    further; no protective action."""
     _, r0, f0, _ = _throttle_step_run(None)
     sim, r1, f1, _ = _throttle_step_run(0.05)
     print(f"\nthrottle max slew healthy {r0:.3f}/s, slow {r1:.4f}/s; min frequency "

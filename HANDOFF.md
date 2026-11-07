@@ -133,7 +133,7 @@ trip at t = 300 s). First activation, seconds after the trip:
 Mass drift 0.0000 %. Energy residual +0.024 % (two_state) / −0.004 % (AB) of firing.
 
 `load_step`: zero alarm transitions in both fidelities. Δf and swell are in T6/T9 above.
-**The step is +6.83 MW, not the +6 MW its comment says** (Known issues).
+The step is **+6.83 MW** (non-vital demand 47.17 → 54 MW; see Known issues).
 
 ## Reference design point, achieved values
 
@@ -306,21 +306,16 @@ D1–D19 are phase 1 (0.1.0); D20 onward are 0.4.0.
 
 ## Known issues / rough edges
 
-- **T2 steady-state drift since 0.3.0, not investigated.**
-  - Worst 600 s drift by version: 0.0000 % at 0.2.0 (`c88af5d`), 0.0266 % at 0.3.0,
-    0.0283 % at 0.4.0, against a 1 % gate. In all three the init residual is
-    2.910e-16 1/s.
-  - Ruled out: the 1 kW station-service fixed-point stop. Its +1.0e-4 kg/s flow
-    offset gives ≈0.06 kg over 600 s against the observed −1.0 kg of `drum.M`.
-  - The mechanism is unknown. The 0.4.0 plan §0 still quotes the stale
-    "< 0.001 % of span".
-- **`load_step` is a +6.83 MW step, not +6 MW, since 0.3.0.**
+- **`load_step` has been a +6.83 MW step since 0.3.0, not the original +6 MW.**
+  Kept as is and re-documented (Alan, 2026-11-07), so no golden hash moves.
   - Mechanism: init gives the blocks `load_mw − station_service` (non-vital 47.17 MW,
     vital 11.79 MW), and the scenario sets an absolute non-vital `p0` of 54 MW.
-  - Stale descriptions: the scenario comment ("48 MW → 54 MW (+10 %)") and the
-    `test_m3_casualties.py` docstring ("~5.55 MW").
-  - Measured ΔP_e is 6.362 MW. T6 still passes because it uses measured ΔP_e (D15).
-  - Fixing the scenario changes two golden runs, so that is a decision for Alan.
+  - Measured ΔP_e is 6.362 MW. T6 compares against measured ΔP_e (D15).
+  - The scenario comment, test docstrings and script descriptions were corrected
+    after the 0.4.0 tag. The other absolute 54 MW events from a 60 MW init
+    (`level_mode_ringdown.py`, `test_m5_faults.py`) are the same +6.83 MW step.
+  - T9 is a different mechanism (governor load reference 54 → 60 MW) and is a true
+    +6 MW step.
 - **AB quiet day: hotwell peaks near +0.24 m after the ramp down to 36 MW** (≈1.9 t of
   inventory leaves the drum). It is inside the ±0.5 m alarm band. Observed in M4b, not
   investigated.
@@ -342,11 +337,27 @@ D1–D19 are phase 1 (0.1.0); D20 onward are 0.4.0.
 - **The `v0.3.0` tag's tree has no LICENSE file** (the MIT license commit came after
   it). `v0.4.0` does.
 
+## For future investigation
+
+Recorded on Alan's direction (2026-11-07); deliberately not pursued in 0.4.0.
+
+- **T2 steady-state drift since 0.3.0.**
+  - Worst 600 s drift by version: 0.0000 % at 0.2.0 (`c88af5d`), 0.0266 % at 0.3.0,
+    0.0283 % at 0.4.0, against a 1 % gate. In all three the init residual is
+    2.910e-16 1/s.
+  - Ruled out: the 1 kW station-service fixed-point stop. Its +1.0e-4 kg/s flow
+    offset gives ≈0.06 kg over 600 s against the observed −1.0 kg of `drum.M`.
+  - The mechanism is unknown. The 0.4.0 plan §0 still quotes the stale
+    "< 0.001 % of span".
+  - Suggested first step: the drift appears in a single commit, `9464eb2` (0.3.0,
+    station-service pump motor loads; its parent `c88af5d` shows 0.0000 %). Compare
+    `tests/test_steady_state.py -s` per-state drift across it and trace which
+    station-service term differs between the init solve and the stepped plant.
+
 ## Questions for Alan
 
-- `load_step` size: fix the scenario to a true +6 MW step (re-pins two goldens) or
-  re-document it as +6.83 MW?
-- T2 drift since 0.3.0: investigate now or leave recorded?
+None open for the core. The bench plan's questions were answered on 2026-11-07
+(`../hotwell-bench/PLAN-bench-0.1.md`).
 
 ## Notes for the panel phase
 

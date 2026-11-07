@@ -102,8 +102,9 @@ pumps:
   feed:                   # 2 x 100%: FP-1, FP-2
     q_rated: 0.0916       # m3/s (~87 kg/s at 111 degC, service rated)
     # pump's own rated point is 0.110 m3/s (20% flow margin over service);
-    # shutoff = 1.25 x head at own rated => flat enough that a +10% load
-    # step does not starve the drum with the FRV wide open.
+    # shutoff = 1.25 x head at own rated => flat enough that the canonical
+    # load step (+10% when sized; +6.83 MW since 0.3.0) does not starve the
+    # drum with the FRV wide open.
     h0: 1117.0            # m shutoff
     k: 18462.0            # m/(m3/s)^2  (H(0.0916) = 962 m)
     tau: 4.0              # s

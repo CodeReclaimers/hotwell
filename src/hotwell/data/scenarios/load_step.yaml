@@ -1,10 +1,13 @@
-# Canonical scenario 1: +10% of rated load stepped onto the non-vital block.
-# Expect droop response (f settles ~0.28 Hz low), drum transients damp out,
-# no alarms beyond (at most) transient frequency-low.
+# Canonical scenario 1: the non-vital block's demand is set to 54 MW at
+# t = 300 s. The steady init gives the blocks load_mw minus station service
+# (0.3.0), so the non-vital block starts at 47.17 MW and this is a +6.83 MW
+# step (+11.4 % of rated), not the +6 MW / +10 % it was in 0.1.0-0.2.0.
+# Measured (0.4.0, test_t6_droop): electrical power settles +6.36 MW, f settles
+# 0.32 Hz low; drum transients damp out; no alarms.
 name: load_step
 seed: 42
 init: {load_mw: 60, mode: islanded}
 events:
-  # non-vital block: 48 MW -> 54 MW (+10% of 60 MW rated)
+  # non-vital block: 47.17 MW (after station service) -> 54 MW absolute
   - {t: 300.0, type: set_load, target: nonvital, p0: 54.0e+6}
 end: {max_t: 900}

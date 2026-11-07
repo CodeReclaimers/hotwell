@@ -51,7 +51,7 @@ def test_ab_design_point_documented(ab_sim):
 
 
 def _load_step_peak(three_element: bool) -> tuple[float, float]:
-    """(peak |level| [m], settled |level| [m]) for the +6 MW load step."""
+    """(peak |level| [m], settled |level| [m]) for the load_step scenario (+6.83 MW)."""
     cfg = load_config()
     cfg["control"]["drum_level"]["three_element"] = three_element
     from hotwell.scenario import load_scenario
