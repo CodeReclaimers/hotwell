@@ -39,24 +39,26 @@ _rd_spec.loader.exec_module(level_mode_ringdown)
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(strict=True, reason=(
-    "KNOWN DEFECT (found by the M4 quiet-day run, 2026-11-07; pre-existing in "
-    "0.3.0): AB drum + three-element feedwater has a ~1890 s drum-level mode "
-    "with NEGATIVE damping (zeta ~ -0.02). See HANDOFF 0.4.0 'known issue'. "
-    "strict=True: once the loop is fixed this XPASSes and fails the run, so "
-    "the marker must be removed deliberately."))
 def test_ab_3e_slow_level_mode_is_damped():
+    """M4b regression gate. History: with trim kp 15 / ki 0.15 (Ti = 100 s) the
+    AB + 3E ~1890 s level mode had negative damping (zeta ~ -0.02, pre-existing
+    in 0.3.0; it was a strict xfail here). Reduced model: unstable iff
+    Ti = kp/ki < kappa*rhoA ~ 116 s. Retuned to kp 30 / ki 0.075 (Ti 400 s).
+    Gate: residual oscillation in the last 2 h < 10 % of the first peak, and a
+    positive damping estimate."""
     r = level_mode_ringdown.ringdown("astrom_bell", None, hours=6.0)
-    print(f"\nperiods {[round(p) for p in r['periods'][:6]]} s; "
-          f"zeta {[round(z, 3) for z in r['zetas'][:6]]}")
-    assert r["zetas"][1:6] and all(z > 0.0 for z in r["zetas"][1:6])
+    print(f"\nfirst extrema {[(round(t), round(x * 1e3, 1)) for t, x in r['extrema'][:4]]}; "
+          f"zeta (half cycle) {r['zeta_half_cycle']}; late/first {r['late_over_first_peak']:.3f}; "
+          f"load-step peak {r['peak_abs_mm']:+.1f} mm")
+    assert r["late_over_first_peak"] < 0.10
+    assert r["zeta_half_cycle"] is not None and r["zeta_half_cycle"] > 0.2
 
 
 @pytest.mark.slow
 def test_two_state_3e_slow_level_mode_is_damped():
-    """Control case for the xfail above: same loop, two-state drum: damped
-    (zeta ~ +0.09..0.14), so the inverse response is what tips AB unstable."""
+    """Control case: same loop on the two-state drum (kappa = 0) is always
+    damped, under the old and the new trim tuning."""
     r = level_mode_ringdown.ringdown("two_state", None, hours=6.0)
-    print(f"\nperiods {[round(p) for p in r['periods'][:5]]} s; "
-          f"zeta {[round(z, 3) for z in r['zetas'][:5]]}")
-    assert all(z > 0.0 for z in r["zetas"][:5])
+    print(f"\nfirst extrema {[(round(t), round(x * 1e3, 1)) for t, x in r['extrema'][:4]]}; "
+          f"zeta (half cycle) {r['zeta_half_cycle']}; late/first {r['late_over_first_peak']:.3f}")
+    assert r["late_over_first_peak"] < 0.10

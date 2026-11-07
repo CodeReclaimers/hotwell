@@ -26,6 +26,11 @@ dependent turbine work plus the COND_P_HIHI trip is the one hash-breaking
 milestone of 0.4.0. Values from `scripts/golden_hashes.py` on the M2 tree (two
 identical runs). Before M2 the values were the 0.3.0 ones (9464eb2, see git
 history). Every later milestone must leave these unchanged.
+
+AB + 3E entries RE-PINNED IN M4b (2026-11-07), deliberately: three-element
+level-trim retune kp 15/ki 0.15 -> kp 30/ki 0.075 (the AB slow level mode was
+unstable; HANDOFF 0.4.0 M4b). The two_state + 1E entries are unchanged (that
+loop doesn't use the trim), checked by diffing scripts/golden_hashes.py output.
 """
 import pytest
 
@@ -54,17 +59,17 @@ GOLDEN = {
         "ac2199cc8b0b51a603464933c78cff344a18a6ff042c2949161f9d40ff5352d4",
         "3791d20afc51aa16e2199aba4731243d5833eeffdd95978da873cd35fea5aa26"),
     ("astrom_bell_3e", "cp1_trip_unrecovered"): (
-        10462,
-        "c1614e37ffb8ddd8d8bbe92d3c791099d25c93372e68388f2615b97cd6e5df3c",
-        "0dc989c19e1df3e2ab8a5f6d3d6bd35c6ee8b416224832a9fbd83f5fc913b17c"),
+        10468,
+        "4079cb8c94c05e9e39588a6292007db68918c4d0e2013d76703bf55ddc0ec5d9",
+        "4e3fb6111baaba9502b89b30e6f71d3e548f3b4597dd3c356e8b72bd2e67f9ff"),
     ("astrom_bell_3e", "cp1_trip_recovered"): (
         18000,
-        "6deb4b0f17a97b7ab15b97bcada94191b801f52d918173c8583bf14bf2ddf189",
-        "5da930b13efe0b021c284a9ce0f5e565dd1cd67a265daa0f7aff33fb6fb73e33"),
+        "fc970dbee00475701add99d62730cce6f714918ee8ed5a5bb4e593a6abb43d31",
+        "e579e4700c2b5de282cdbec2acbec4d483733e1251f3f4c961eb5f11fb8e8c9f"),
     ("astrom_bell_3e", "load_step"): (
         18000,
-        "01781e1723040415e48ee756387efe93856b3c0a9aaa4d0020fe5b9400b9d206",
-        "4880271e46de549490676b5ca16c2f81f0ebebca8e8aba3780f369651fb13df9"),
+        "35aae16396f4cf023be94f07029346b35e87466cc977900833b3273b317b31df",
+        "fda00ffc3b85faf5c92b8829830b48793e17bebd157b3f1dc6f3d81eeffc6434"),
 }
 
 

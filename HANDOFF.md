@@ -149,8 +149,8 @@ answered there). Milestone status is in `.plan-checkpoint.md`.
   item. (The AB day's hourly progress lines look like hours-scale drift. That is
   aliasing: 1.9 cycles of a ~31-min mode per hourly sample.)
 
-- **KNOWN ISSUE (pre-existing in 0.3.0, found by M4): AB drum + three-element
-  feedwater is unstable.** A noise-free ring-down
+- **RESOLVED IN M4b (was a known issue, pre-existing in 0.3.0, found by M4):
+  AB drum + three-element feedwater was unstable.** A noise-free ring-down
   (`scripts/level_mode_ringdown.py`: +6 MW non-vital step at 300 s, 6 h,
   true level) shows a period of 1889 ± 5 s and log decrement −0.13 … −0.18
   per cycle (ζ −0.021 … −0.028); amplitude grows ~15 %/cycle (−78.9 mm at
@@ -170,13 +170,53 @@ answered there). Milestone status is in `.plan-checkpoint.md`.
   | AB, trim ki 0.075 (×½) | 2618–2714 s | +0.153 … +0.072 |
   | AB, trim kp 7.5 (×½) | — | trim saturates at +25 kg/s, peak 587 mm |
 
-  Not fixed (diagnosis first; the tuning is Alan's call). Recorded
-  mechanically: `test_ab_3e_slow_level_mode_is_damped` is a **strict xfail** in
-  the slow set (XPASS fails the run once fixed), next to a passing two_state
-  control case. **Consequences:** the panel's default fidelity has this mode
-  (a load step reaches the ±300 mm trips after hours, never within the 900 s
-  canonical scenarios); and any AB benchmark dump contains an un-injected
-  oscillation, including "no fault" items.
+  (The table above is the M4-time diagnosis with the old tuning.)
+- **M4b complete: AB + 3E level-trim retune (kp 15 / ki 0.15 → kp 30 /
+  ki 0.075).**
+  *Option 2 (pegging-steam feedforward), approved first, was rejected on
+  evidence:* a scratch experiment feeding the TRUE pegging flow forward
+  (demand = steam + pegging + trim, trim re-initialised to 0) stayed unstable
+  (ζ −0.023 … −0.031, period 1760 s, peak 298 mm). A constant offset was
+  identical to baseline, as linear theory requires. My earlier
+  "the trim carries a large offset" reasoning was wrong as a stability argument.
+  *Root cause:* the AB drum's **sustained** inverse gain (D18: −0.166 m³ of
+  sub-surface steam per kg/s of feed → κ ≈ 8.6 mm of level per kg/s) inside
+  the trim PI. A reduced model L = M/ρA − κF, F = PI(−L), ρA ≈ 13.5 t/m, has
+  trace ∝ (κ·ki − kp/ρA), so it is **unstable iff Ti = kp/ki < κ·ρA ≈ 116 s**
+  (old Ti = 100 s). Predicted ζ −0.028 / period 1760 s vs measured −0.022 …
+  −0.028 / 1890 s. Predicted threshold kp ≈ 17.3 at ki 0.15; the committed
+  ring-down brackets it: kp 16.5 → ζ −0.010, kp 18.5 → ζ +0.011.
+  **D18's aggressive-trim failure (kp 60, ki 1.5) was Ti = 40 s: an
+  integral-time problem, not too much gain.**
+  *New tuning, Ti 400 s* (model ζ +0.39), `scripts/level_mode_ringdown.py`:
+
+  | | old (kp 15, ki 0.15) | new (kp 30, ki 0.075) |
+  |---|---|---|
+  | first peak after +6.8 MW step | −77.1 mm @ 480 s | −77.6 mm @ 471 s |
+  | level at t = 1800 s | +15.3 mm | +14.8 mm |
+  | damping (half-cycle estimate) | modal ζ ≈ −0.02 | ζ ≈ +0.44 |
+  | last-2-h amplitude / first peak (6 h) | 2.81 | 0.014 |
+  | quiet day, AB + 3E: alarm activations | 56 | **0** |
+  | quiet day, AB + 3E: sensed drum level | −227 … +219 mm | −36 … +37 mm |
+
+  Short-term response essentially unchanged (feedforward + inverse response
+  dominate the first half cycle). AB cascade (`run_scenario.py
+  cp1_trip_unrecovered --events --fidelity astrom_bell_3e`), M4 → M4b, same
+  order and first-out: DA_LO +21.95 → +21.85, FP1_SUCTION +78.05 → +78.20,
+  DRUM_LVL_HI +89.25 → +89.30, DRUM_LVL_HIHI +100.45 → +100.55, DRUM_LVL_LOLO
+  +223.10 → +223.40 (all ≤ 0.30 s). **Only the three AB goldens re-pinned;**
+  two_state + 1E goldens and quiet day are byte-identical. The strict xfail is
+  now `test_ab_3e_slow_level_mode_is_damped` (gate: last-2-h / first peak
+  < 0.10 and half-cycle ζ > 0.2; the old tuning fails at 2.81).
+  Observed, not investigated: in the AB quiet day the hotwell peaks at
+  +0.244 m at 4.24 h, just after the ramp to 36 MW (≈ 1.9 t of inventory out of
+  the drum), inside the ±0.5 m alarm band.
+  **For the panel's 0.4.0 migration:** its default fidelity (AB + 3E) gets
+  this retune; the AB casualty-pin column shifts ≤ 0.30 s.
+  **For the bench repo / the "instability as a fault" idea:** Ti = κ·ρA ≈
+  116 s is a designable stability boundary. An injected trim mis-tune, or phase
+  lag in the loop (e.g. M3 `lag` on drum_level / feed_flow), can produce a
+  growing ~30 min oscillation at a predictable rate against a stable baseline.
 
 ## 0.3.0 — station-service pump loads (2026-08-29)
 
@@ -473,6 +513,10 @@ Sizing-rule compliance (achieved):
   plant's. Level reference = half-drum below-surface volume. A design-point test locks
   these derivations.
 - **D18 — single-element level control is unstable with the AB drum + our cold feed.**
+  *(0.4.0 correction: the AB + three-element pairing chosen here was itself
+  unstable, ζ ≈ −0.02 at a ~1890 s period, which the 1800 s window below couldn't
+  show; the "aggressive trim" failure was Ti = 40 s < κρA ≈ 116 s. Retuned in
+  M4b; see the 0.4.0 section.)*
   Cutting feed reduces in-drum condensation, so the sub-surface steam volume grows
   (−0.166 m³ per sustained kg/s of feed) and level RISES — a positive feedback through
   the level loop that ran load_step into DRUM_LVL_HIHI/turbine trip. The short-term

@@ -193,6 +193,20 @@ in behaviour can be attributed to it.
   audit drift < 0.1 %; wall time recorded (expected ≈ 8.5 min per 24 h at the T11
   rate; noise overhead ≤ 10 %).
 
+### M4b — AB + three-element level-trim retune (added 2026-11-07, Alan)
+
+Found by the M4 quiet day; pre-existing in 0.3.0. The AB drum's sustained inverse
+gain κ ≈ 8.6 mm of level per kg/s of feed sits inside the 3E level-trim PI. A
+reduced model (L = M/ρA − κF, ρA ≈ 13.5 t/m) is unstable iff the trim integral time
+Ti = kp/ki < κ·ρA ≈ 116 s; the baseline Ti is 100 s (ζ ≈ −0.02, period ≈ 1890 s).
+**Option 2 (pegging-steam feedforward) was approved first and then REJECTED on
+evidence**: a scratch experiment with true pegging flow fed forward stayed unstable
+(ζ −0.023 … −0.031), because a pegging offset doesn't change the mode's damping.
+**Decision: retune the trim to kp 30, ki 0.075 (Ti 400 s, predicted ζ ≈ +0.39).**
+Verify before committing: ring-down, AB load-step peak vs D18 (65 mm), both quiet
+days. Re-pin only the AB goldens (two_state + 1E must be unchanged), re-measure the
+AB cascade column, and convert the strict xfail into a passing test.
+
 ### M5 — hidden physical faults (hash-neutral: only active when events fire)
 
 All faults are scenario events, optionally ramped (`ramp_s`), with parameters stored in

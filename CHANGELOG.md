@@ -49,11 +49,19 @@
 - `scripts/level_mode_ringdown.py`: ring-down / damping estimate of the slow
   drum-level mode under three-element control.
 
-### Known issue (pre-existing, documented in M4, not fixed)
+### Changed (M4b — control retune; AB + 3E hashes change, two_state + 1E unchanged)
 
-- AB drum + three-element feedwater: ~1890 s drum-level mode with negative
-  damping (ζ ≈ −0.02), the same in 0.3.0. Strict-xfail test
-  `test_ab_3e_slow_level_mode_is_damped`. Details in HANDOFF.
+- **Three-element level trim retuned** `control.drum_level_3e.trim` kp 15 →
+  30, ki 0.15 → 0.075 (integral time 100 → 400 s). The old tuning left the
+  AB drum + 3E with a ~1890 s drum-level mode at negative damping (ζ ≈ −0.02,
+  pre-existing in 0.3.0, found by the M4 quiet day). Reduced model:
+  unstable iff Ti < κ·ρA ≈ 116 s, from the AB drum's sustained inverse gain.
+  New ring-down ζ ≈ 0.44; the AB quiet day goes from 56 alarm activations to 0.
+  AB cascade shifts ≤ 0.30 s. Pegging-steam feedforward was tried and rejected
+  (it doesn't damp the mode).
+- `test_ab_3e_slow_level_mode_is_damped` is no longer an xfail.
+- `scripts/level_mode_ringdown.py` reports the load-step peak, the level at
+  1800 s, a half-cycle ζ estimate and the late/first-peak envelope ratio.
 
 
 

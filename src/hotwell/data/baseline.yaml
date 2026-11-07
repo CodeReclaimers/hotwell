@@ -156,8 +156,13 @@ control:
       # AB drum's feed->condensation->steam-volume coupling inverts the
       # short-term level response to feed changes (~2 min break-even), so an
       # aggressive trim destabilizes; feedforward carries the fast work.
-      kp: 15.0
-      ki: 0.15
+      # 0.4.0 M4b retune (was kp 15 / ki 0.15, Ti 100 s): the AB drum's
+      # SUSTAINED inverse gain kappa ~ 8.6 mm per kg/s of feed makes this loop
+      # unstable iff Ti = kp/ki < kappa*rhoA ~ 116 s (rhoA ~ 13.5 t/m). The old
+      # tuning had a ~1890 s mode at zeta ~ -0.02. Ti 400 s: ring-down zeta ~ 0.44
+      # (scripts/level_mode_ringdown.py; HANDOFF 0.4.0 M4b).
+      kp: 30.0
+      ki: 0.075
       lo: -25.0
       hi: 25.0
       t_track: 10.0

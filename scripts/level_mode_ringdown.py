@@ -13,7 +13,10 @@ Usage:
 Damping estimate: log decrement between same-sign extrema,
 delta = ln|x_i / x_{i+2}|, zeta = delta / sqrt(4 pi^2 + delta^2). Only
 extrema above 10 % of the largest deviation count, so the estimate isn't
-fitted to the noise floor of a decayed response.
+fitted to the noise floor of a decayed response. A well-damped response
+leaves fewer than three such extrema, so a half-cycle estimate
+(|x1/x2| = exp(pi zeta / sqrt(1 - zeta^2))) and an envelope ratio (largest
+|deviation| in the last 2 h over the first peak) are also reported.
 """
 from __future__ import annotations
 
@@ -66,8 +69,25 @@ def ringdown(drum: str = "astrom_bell", trim: dict | None = None,
     periods = [b[0] - a[0] for a, b in pairs]
     decs = [float(np.log(abs(a[1] / b[1]))) for a, b in pairs]
     zetas = [dl / float(np.sqrt(4 * np.pi ** 2 + dl ** 2)) for dl in decs]
+    # Half-cycle estimate for well-damped responses that leave < 3 extrema above
+    # the floor: |x1/x2| over half a period = exp(pi*zeta/sqrt(1-zeta^2)).
+    zeta_half = None
+    if len(alt) >= 2:
+        dh = float(np.log(abs(alt[0][1] / alt[1][1])))
+        zeta_half = dh / float(np.sqrt(np.pi ** 2 + dh ** 2))
+    # Envelope check that works damped or not: residual oscillation in the
+    # window [t_end - 2 h, t_end] relative to the first peak.
+    late = t > t_end - 7200.0
+    first_peak = abs(alt[0][1]) if alt else float(np.max(np.abs(xs)))
+    late_ratio = float(np.max(np.abs(xs[late]))) / first_peak if first_peak else 0.0
+    rel0 = lv - lv[0]  # level relative to the initial steady state (D18's measure)
+    i1800 = int(np.argmin(np.abs(tt - 1800.0)))
     return {"drum": drum, "trim": trim or {}, "extrema": alt, "periods": periods,
-            "log_decrements": decs, "zetas": zetas,
+            "peak_abs_mm": float(rel0[np.argmax(np.abs(rel0))] * 1e3),
+            "t_peak_abs": float(tt[np.argmax(np.abs(rel0))]),
+            "level_1800_mm": float(rel0[i1800] * 1e3),
+            "log_decrements": decs, "zetas": zetas, "zeta_half_cycle": zeta_half,
+            "late_over_first_peak": late_ratio,
             "std_after_1h_mm": float(np.std(lv[tt > 3600.0]) * 1e3),
             "max_dev_mm": float(np.max(np.abs(x)) * 1e3),
             "trim_range": (float(trim_out.min()), float(trim_out.max()))}
@@ -86,11 +106,16 @@ def main() -> None:
     print(f"drum {r['drum']}, 3E trim overrides {r['trim'] or 'none'}, {a.hours} h")
     print(f"level std after 1 h {r['std_after_1h_mm']:.1f} mm; max |dev| {r['max_dev_mm']:.1f} mm; "
           f"trim output {r['trim_range'][0]:.2f}..{r['trim_range'][1]:.2f} kg/s (limits +-25)")
+    print(f"load-step response vs initial level: peak {r['peak_abs_mm']:+.1f} mm at "
+          f"t = {r['t_peak_abs']:.0f} s; at t = 1800 s {r['level_1800_mm']:+.1f} mm")
     print("alternating extrema (t s, mm): "
           + ", ".join(f"({t:.0f}, {x * 1e3:+.1f})" for t, x in r["extrema"][:12]))
     print("periods (s): " + ", ".join(f"{p:.0f}" for p in r["periods"][:8]))
     print("log decrements: " + ", ".join(f"{v:+.3f}" for v in r["log_decrements"][:8]))
     print("zeta: " + ", ".join(f"{v:+.3f}" for v in r["zetas"][:8]))
+    zh = r["zeta_half_cycle"]
+    print("zeta (first half cycle): " + (f"{zh:+.3f}" if zh is not None else "n/a"))
+    print(f"late (last 2 h) max |dev| / first peak: {r['late_over_first_peak']:.3f}")
 
 
 if __name__ == "__main__":
