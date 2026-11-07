@@ -7,9 +7,11 @@ Step sequence (plan section 3.2, strict order):
   6. historian/audit.  Internally the sensing pipeline runs once, immediately
   before the event layer, so protection consumes sensed values (HANDOFF D11).
 
-Determinism: one numpy.random.Generator owned here (no stochastic elements
-are active in phase 1, but all future randomness must flow from it); a
-per-step SHA-256 over the state vector provides the T5 trajectory hash.
+Determinism: all randomness comes from `self.streams`, a `hotwell.rng.StreamBank`
+of named, independent generators seeded from the run seed (0.4.0; see that
+module for the append-only stream-ID contract). A per-step SHA-256 over the
+state vector provides the T5 trajectory hash; a second one over the returned
+observations is `observation_hash`.
 """
 from __future__ import annotations
 
@@ -34,6 +36,7 @@ from hotwell.historian import Historian
 from hotwell.plant import PUMP_NAMES, Aux, Discrete, Plant, load_config
 from hotwell.protection.interlocks import FiredAction, ProtectionEngine
 from hotwell.protection.tables import load_protection_table
+from hotwell.rng import StreamBank
 from hotwell.scenario import Scenario, load_scenario
 from hotwell.sensors import (
     Observation,
@@ -69,7 +72,10 @@ class Simulator:
         if seed is None:
             seed = scenario.seed if scenario is not None else 0
         self.seed = seed
+        #: Unused. Kept for backward compatibility with 0.3.0 consumers; new
+        #: randomness must come from `self.streams` (0.4.0, plan M1).
         self.rng = np.random.default_rng(seed)
+        self.streams = StreamBank(seed)
         self.dt = DT
         self.t = 0.0
         self.y = self.plant.registry.initial_vector()

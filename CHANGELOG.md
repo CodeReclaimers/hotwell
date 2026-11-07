@@ -17,6 +17,26 @@
   (observation hash computed outside the simulator), optionally against
   another checkout's `src/`.
 
+### Added (M1 — structural, hash-neutral)
+
+- `hotwell.rng`: `StreamBank(seed).stream(name)` returns a cached
+  `numpy.random.Generator` seeded by `SeedSequence([seed, STREAM_IDS[name]])`.
+  `STREAM_IDS` is a read-only, **append-only** table of 25 literal IDs:
+  `sensor.<instrument>` 1000–1021, `load.vital`/`load.nonvital` 2000–2001,
+  `operator` 3000. Unknown names raise `KeyError`; negative seeds raise
+  `ValueError`.
+- `Simulator.streams`: the run's `StreamBank`. Nothing draws from it yet.
+
+### Changed
+
+- `Simulator.rng` is now documented as unused (kept for 0.3.0 compatibility).
+  The phase-1 rule "all randomness from one Generator owned by the simulator"
+  becomes "all randomness from the simulator's StreamBank".
+- Determinism scope stated explicitly: same seed + scenario + platform +
+  **numpy version** (NumPy does not promise stable `Generator` distribution
+  algorithms across releases; `tests/test_rng.py` pins raw and normal draws
+  under numpy 2.5.1 as a loud gate).
+
 ## 0.3.0 — 2026-08-29
 
 Station-service pump motor loads on the islanded bus. **Physics change**:

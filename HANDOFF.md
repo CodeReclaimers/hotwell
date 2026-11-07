@@ -15,6 +15,13 @@ answered there). Milestone status is in `.plan-checkpoint.md`.
   state hash but not the observation hash (quantization absorbs sub-LSB
   differences in truth). Use the state hash for "physics unchanged" and the
   observation hash for "the exported data is unchanged".
+- **M1 complete — rng streams.** `hotwell.rng.StreamBank` / `STREAM_IDS`
+  (append-only, pinned in `tests/test_rng.py`; a coverage test fails when a new
+  instrument has no `sensor.*` stream, which M5b's `makeup_flow` will hit by
+  design). Golden hashes unchanged. **Numpy is now part of the determinism
+  contract** once noise lands (M3): `test_pinned_raw_draws_numpy_version_gate`
+  fails on a numpy that changes PCG64/SeedSequence or the `normal()`
+  algorithm. The bench repo should pin numpy for released item sets.
 
 ## 0.3.0 — station-service pump loads (2026-08-29)
 
