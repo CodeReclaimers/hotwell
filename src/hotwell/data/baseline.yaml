@@ -72,6 +72,11 @@ loads:
   nonvital_p0: 48.0e+6    # W   minus station service — see initialize_steady_state)
   k_pf: 1.5               # frequency dependence
   vital_fraction: 0.2
+  # 0.4.0 (plan M4): load process noise per block, an OU deviation from the
+  # schedule: {sigma_w [W], tau [s] > 0}. Empty = none. Example:
+  #   noise:
+  #     nonvital: {sigma_w: 3.0e+5, tau: 120.0}
+  noise: {}
 
 firing:
   eta_comb: 0.89          # combustion efficiency

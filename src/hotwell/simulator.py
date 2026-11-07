@@ -24,6 +24,7 @@ from scipy.optimize import root
 from hotwell import data
 from hotwell.actions import check_schema
 from hotwell.audit import AuditAccumulator, AuditReport
+from hotwell.components.loads import LoadDriver
 from hotwell.components.pumps import (
     MODE_RUNNING,
     MODE_STARTING,
@@ -82,6 +83,8 @@ class Simulator:
         self.disc = Discrete()
         self.sensors = SensorBank(cfg.get("sensors", {}).get("noise"),
                                   self.streams, DT)
+        self.load_driver = LoadDriver(self.plant.loads,
+                                      cfg["loads"].get("noise"), self.streams, DT)
         self.audit_acc = AuditAccumulator()
         self.engine = ProtectionEngine(load_protection_table(protection_path))
         self.scenario = scenario
@@ -254,8 +257,8 @@ class Simulator:
             elif ev.type == "set_air_ingress":
                 self.disc.air_ingress = float(p["value"])
             elif ev.type == "set_load":
-                block = getattr(self.plant.loads, p["target"])
-                block.p0 = float(p["p0"])
+                self.load_driver.set_load(p["target"], float(p["p0"]),
+                                          float(p.get("ramp_s", 0.0)))
             elif ev.type == "action":
                 self.apply_actions(p["command"])
 
@@ -388,6 +391,8 @@ class Simulator:
         self._apply_scenario_events()
         if actions:
             self.apply_actions(actions)
+        # 1b. load schedule ramps + load process noise (frozen during RK4)
+        self.load_driver.advance()
         # 2. controllers on previous sensed observation
         cmds = self.control.update(self.last_obs.values, self.dt)
         if self.disc.mft:

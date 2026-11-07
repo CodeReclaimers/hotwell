@@ -120,6 +120,63 @@ answered there). Milestone status is in `.plan-checkpoint.md`.
   `<pump>_mode` separates *starting* from *stopped*, which the lamps don't.
   Noise is a config (plant) property, not a scenario property, so item
   generators set it through the config dict.
+- **M4 complete: load ramps, load process noise, quiet day.** Hash-neutral
+  at defaults. `set_load` takes `ramp_s` (exact endpoint, frozen during RK4);
+  `loads.noise.<block>: {sigma_w, tau > 0}` is an OU deviation starting at 0
+  (a stationary start would be a physical load step at t = 0⁺). Config path
+  `loads.noise.<block>` rather than the plan's `loads.<block>.noise`, because
+  `loads:` is flat. **Finding:** load noise moves frequency *more* than
+  quasi-static droop (ratio 1.41 at τ = 30 s, 1.11 at τ = 300 s;
+  corr(p_drum, p_dev) −0.65 / −0.34). A load rise sags drum pressure, and
+  P_m ∝ p_drum.
+
+  **Quiet day** (`scripts/quiet_day.py`, `pytest -m slow -s`; profile 60 → 36
+  → 60 MW with 60-min ramps, provisional noise preset, fixed load-reference
+  trims every 10 s until M6), seed 42:
+
+  | | two_state + 1E | AB + 3E |
+  |---|---|---|
+  | plan criteria (no trips/rejections, mass < 0.1 %) | PASS | PASS (formally) |
+  | wall for 24 h | 346.4 s (249×) | 389.5 s (222×) |
+  | mass audit drift | +0.00000 % | −0.00000 % |
+  | alarm activations | **0** | **56**, all after 22 h: DRUM_LVL_HI/LO chatter |
+  | sensed frequency | 59.92 … 60.10 Hz | 59.93 … 60.09 Hz |
+  | sensed drum level | −15 … +16 mm | **−227 … +219 mm** |
+  | sensed hotwell level | −13 … +14 mm | −350 … +360 mm |
+  | FP-1 NPSH margin min | 2.55 m | 2.30 m |
+
+  The two_state day is genuinely quiet. **The AB + 3E day is not**; see the next
+  item. (The AB day's hourly progress lines look like hours-scale drift. That is
+  aliasing: 1.9 cycles of a ~31-min mode per hourly sample.)
+
+- **KNOWN ISSUE (pre-existing in 0.3.0, found by M4): AB drum + three-element
+  feedwater is unstable.** A noise-free ring-down
+  (`scripts/level_mode_ringdown.py`: +6 MW non-vital step at 300 s, 6 h,
+  true level) shows a period of 1889 ± 5 s and log decrement −0.13 … −0.18
+  per cycle (ζ −0.021 … −0.028); amplitude grows ~15 %/cycle (−78.9 mm at
+  479 s … +115.9 mm at 10 861 s). Pristine 0.3.0: period 1869–1899 s, ζ
+  −0.020 … −0.026, the same mode. M2 did not cause it. **D18's "converging"
+  was judged from 1500 s, under one period.** Mechanism: the slow level-trim PI
+  closes an integrating plant (drum inventory, ρA ≈ 13.5 t/m) and must carry
+  the whole pegging-steam offset (~10 kg/s, unseen by the steam-flow
+  feedforward). The integrator estimate is ω_n = √(ki/ρA) ≈ 3.3e-3 rad/s
+  (31 min), ζ = kp/(2√(ki ρA)) ≈ 0.17. The AB inverse response (D18) is
+  non-minimum-phase and pushes that below zero. Attribution runs (same script):
+
+  | variant | period | ζ (successive cycles) |
+  |---|---|---|
+  | two_state + 3E (control) | 1832–1967 s | +0.144 … +0.091 (damped) |
+  | AB, trim kp 30 (×2) | 1665–1791 s | +0.197 … +0.123 |
+  | AB, trim ki 0.075 (×½) | 2618–2714 s | +0.153 … +0.072 |
+  | AB, trim kp 7.5 (×½) | — | trim saturates at +25 kg/s, peak 587 mm |
+
+  Not fixed (diagnosis first; the tuning is Alan's call). Recorded
+  mechanically: `test_ab_3e_slow_level_mode_is_damped` is a **strict xfail** in
+  the slow set (XPASS fails the run once fixed), next to a passing two_state
+  control case. **Consequences:** the panel's default fidelity has this mode
+  (a load step reaches the ±300 mm trips after hours, never within the 900 s
+  canonical scenarios); and any AB benchmark dump contains an un-injected
+  oscillation, including "no fault" items.
 
 ## 0.3.0 — station-service pump loads (2026-08-29)
 

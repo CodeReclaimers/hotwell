@@ -28,7 +28,34 @@
   `ValueError`.
 - `Simulator.streams`: the run's `StreamBank`. Nothing draws from it yet.
 
-### Added (M3 — hash-neutral at defaults)
+### Added (M4 — hash-neutral at defaults)
+
+- **Load ramps:** `set_load` takes optional `ramp_s`, a linear ramp of the
+  block's scheduled `p0` over round(ramp_s/dt) steps with an exact endpoint,
+  advanced once per step after events/actions and before the controllers
+  (frozen during RK4). A new `set_load` on the same block replaces an active
+  ramp, starting from the current value. No `ramp_s` keeps the old step
+  behaviour.
+- **Load process noise:** config `loads.noise.<block>: {sigma_w [W], tau [s] > 0}`,
+  an OU deviation `LoadBlock.p_dev` from the schedule, on stream `load.<block>`.
+  It starts at zero (not stationary; see `components/loads.py`). Demand is
+  (p0 + p_dev) floored at 0. One draw per block per step always (I2). Empty
+  by default.
+- `hotwell.components.loads.LoadDriver` (`Simulator.load_driver`); `set_load`
+  events are validated at scenario load.
+- `scripts/quiet_day.py` + `tests/test_quiet_day.py`: the 24-h acceptance run
+  (both fidelities), marked `slow` and excluded from the default `pytest`
+  (`pytest -m slow -s`). Registered in `pyproject.toml`.
+- `scripts/level_mode_ringdown.py`: ring-down / damping estimate of the slow
+  drum-level mode under three-element control.
+
+### Known issue (pre-existing, documented in M4, not fixed)
+
+- AB drum + three-element feedwater: ~1890 s drum-level mode with negative
+  damping (ζ ≈ −0.02), the same in 0.3.0. Strict-xfail test
+  `test_ab_3e_slow_level_mode_is_damped`. Details in HANDOFF.
+
+
 
 - **Sensor noise**, config `sensors.noise.<instrument>: {sigma, tau}`
   (instrument units; `tau = 0` white, `tau > 0` exact AR(1)/OU, started

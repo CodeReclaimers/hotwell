@@ -37,3 +37,7 @@ select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# 0.4.0 M4: the 24-h quiet-day acceptance runs take minutes each and are
+# excluded from the default gate. Run them with: pytest -m slow -s
+markers = ["slow: long-running acceptance runs (excluded by default; pytest -m slow)"]
+addopts = "-m 'not slow'"

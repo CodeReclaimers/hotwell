@@ -52,6 +52,15 @@ def _check_sensor_fault(scenario: str, p: dict) -> None:
                               ("bias", "rate", "max_bias", "tau_s", "factor") if k in p})
 
 
+def _check_set_load(scenario: str, p: dict) -> None:
+    """0.4.0: target block, p0 >= 0, optional ramp_s >= 0."""
+    if p.get("target") not in ("vital", "nonvital"):
+        raise ValueError(f"{scenario}: set_load target must be vital|nonvital, "
+                         f"got {p.get('target')!r}")
+    if float(p["p0"]) < 0.0 or float(p.get("ramp_s", 0.0)) < 0.0:
+        raise ValueError(f"{scenario}: set_load needs p0 >= 0 and ramp_s >= 0")
+
+
 def load_scenario(path: data.Resource) -> Scenario:
     """Parse and validate a scenario YAML (filesystem path or packaged resource)."""
     raw = yaml.safe_load(data.read_text(path))
@@ -63,6 +72,8 @@ def load_scenario(path: data.Resource) -> Scenario:
         params = {k: v for k, v in row.items() if k not in ("t", "type")}
         if etype == "sensor_fault":
             _check_sensor_fault(raw["name"], params)
+        elif etype == "set_load":
+            _check_set_load(raw["name"], params)
         events.append(ScenarioEvent(t=float(row["t"]), type=etype, params=params))
     events.sort(key=lambda e: e.t)
     return Scenario(
