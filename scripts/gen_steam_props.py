@@ -9,6 +9,17 @@ thermodynamics texts; both are tabulations of the IAPWS formulation to the
 precision shown. Values were typed in below. Internal energies are derived as
 u = h - p*v rather than transcribed, to reduce transcription-error surface.
 
+0.4.0 (M2) adds entropies for the turbine's isentropic expansion: s_f is typed
+in both families; s_g in the drum family is DERIVED as s_f + (h_g - h_f)/Tsat
+(the exact Clausius relation s_fg = h_fg/T) instead of transcribed; h_g is
+typed in the low-temperature family. The typed 0.4.0 values were audited
+against an independent IAPWS-97 implementation (scripts/audit_steam_props.py,
+needs the `iapws` package, which is NOT a dependency): worst relative error
+s_f(p) 0.0083 %, s_f(T) 0.0204 %, h_g(T) 0.0028 %, derived s_g(p) 0.0254 %.
+The generator also checks each typed s_f row against the integral
+ds_f = (dh_f - v_f dp)/T along the saturation line, using only data already in
+this file, as a transcription-error guard that needs no oracle.
+
 CoolProp is deliberately NOT used and is not a dependency at generation or
 run time.
 
@@ -22,6 +33,8 @@ Fit strategy
   range): ln(psat) as a degree-4 polynomial in T [K]; the inverse Tsat(p) over
   the same range as a degree-4 polynomial in ln(p); saturated-liquid h_f(T)
   and v_f(T) as degree-3 polynomials in T [K].
+- 0.4.0: s_f(p), s_g(p) degree-4 in z (family A); s_f(T), h_g(T) degree-3 in
+  T [K] (family B).
 
 Acceptance: max relative error against every source point must be <= 0.5%
 (plan section 5.1); the achieved errors are written into the generated module
@@ -80,6 +93,32 @@ VF_T_TABLE = [
     (70, 0.001023), (80, 0.001029), (90, 0.001036), (100, 0.001044),
     (110, 0.001052), (120, 0.001060), (130, 0.001070), (140, 0.001080),
     (150, 0.001091),
+]
+
+# --- 0.4.0 entropy / vapor-enthalpy source points ----------------------------------
+# Family A: p [MPa], s_f [kJ/(kg K)] — same pressures as SAT_P_TABLE, same order.
+SF_P_TABLE = [
+    (3.0, 2.6454), (3.5, 2.7253), (4.0, 2.7966), (4.5, 2.8612), (5.0, 2.9207),
+    (6.0, 3.0275), (7.0, 3.1220), (8.0, 3.2077), (9.0, 3.2866), (10.0, 3.3603),
+    (11.0, 3.4299), (12.0, 3.4964),
+]
+
+# Family B: T [degC], s_f [kJ/(kg K)] — same temperatures as HF_T_TABLE.
+SF_T_TABLE = [
+    (30, 0.4368), (35, 0.5051), (40, 0.5724), (45, 0.6386), (50, 0.7038),
+    (55, 0.7680), (60, 0.8313), (65, 0.8937), (70, 0.9551), (75, 1.0158),
+    (80, 1.0756), (85, 1.1346), (90, 1.1929), (95, 1.2504), (100, 1.3072),
+    (105, 1.3634), (110, 1.4188), (115, 1.4737), (120, 1.5279), (125, 1.5816),
+    (130, 1.6346), (135, 1.6872), (140, 1.7392), (145, 1.7908), (150, 1.8418),
+]
+
+# Family B: T [degC], h_g [kJ/kg]
+HG_T_TABLE = [
+    (30, 2555.6), (35, 2564.6), (40, 2573.5), (45, 2582.4), (50, 2591.3),
+    (55, 2600.1), (60, 2608.8), (65, 2617.5), (70, 2626.1), (75, 2634.6),
+    (80, 2643.0), (85, 2651.4), (90, 2659.6), (95, 2667.6), (100, 2675.6),
+    (105, 2683.4), (110, 2691.1), (115, 2698.6), (120, 2706.0), (125, 2713.1),
+    (130, 2720.1), (135, 2726.9), (140, 2733.5), (145, 2739.8), (150, 2745.9),
 ]
 
 P_REF = 8.0e6  # Pa — center of the drum-range log variable
@@ -159,12 +198,60 @@ def main() -> None:
     errs.append(e)
     reports.append(r)
 
+    # ---- 0.4.0 entropy fits -------------------------------------------------
+    sfa = np.array(SF_P_TABLE)
+    assert np.array_equal(sfa[:, 0], tbl[:, 0]), "SF_P_TABLE pressures != SAT_P_TABLE"
+    s_f = sfa[:, 1] * 1e3                      # J/(kg K)
+    s_g = s_f + (h_g - h_f) / tsat_k           # derived: s_fg = h_fg / T (exact)
+    c_sf = np.polyfit(z, s_f, deg)
+    c_sg = np.polyfit(z, s_g, deg)
+    for name, c, ys in [("s_f", c_sf, s_f), ("s_g(deriv)", c_sg, s_g)]:
+        e, r = fit_report(name, c, z, ys, None)
+        errs.append(e)
+        reports.append(r)
+
+    sfb = np.array(SF_T_TABLE)
+    assert np.array_equal(sfb[:, 0], hb[:, 0]), "SF_T_TABLE temps != HF_T_TABLE"
+    c_sf_t = np.polyfit(sfb[:, 0] + T0_K, sfb[:, 1] * 1e3, 3)
+    e, r = fit_report("sf_T", c_sf_t, sfb[:, 0] + T0_K, sfb[:, 1] * 1e3, None)
+    errs.append(e)
+    reports.append(r)
+
+    hgb = np.array(HG_T_TABLE)
+    c_hg_t = np.polyfit(hgb[:, 0] + T0_K, hgb[:, 1] * 1e3, 3)
+    e, r = fit_report("hg_T", c_hg_t, hgb[:, 0] + T0_K, hgb[:, 1] * 1e3, None)
+    errs.append(e)
+    reports.append(r)
+
+    # Transcription guard (no oracle): each consecutive pair of typed s_f rows
+    # must match the trapezoid estimate of the integral of (dh_f - v_f dp)/T.
+    # The quadrature error is far below the gate, so a typo in s_f
+    # (or in the h_f/v_f it is checked against) shows up as a mismatch.
+    def ds_check(t_k, hf, vf, p):
+        dt = np.diff(t_k)
+        est = (np.diff(hf) - 0.5 * (vf[1:] + vf[:-1]) * np.diff(p)) \
+            / (0.5 * (t_k[1:] + t_k[:-1]))
+        return est, dt
+    est_a, _ = ds_check(tsat_k, h_f, v_f, p_pa)
+    t_b = sfb[:, 0] + T0_K
+    est_b, _ = ds_check(t_b, hb[:, 1] * 1e3, np.polyval(c_vf_t, t_b),
+                        np.exp(np.polyval(c_lnpsat, t_b)))
+    mis_a = np.max(np.abs(est_a - np.diff(s_f)) / np.abs(np.diff(s_f)))
+    mis_b = np.max(np.abs(est_b - np.diff(sfb[:, 1] * 1e3)) / np.abs(np.diff(sfb[:, 1] * 1e3)))
+    guard = (f"s_f row-step vs integral of (dh-v dp)/T: worst mismatch "
+             f"family A {mis_a * 100:.3f}%, family B {mis_b * 100:.3f}% (gate 3%)")
+    reports.append(guard)
+
     report_text = "\n".join(reports)
     print(report_text)
     worst = max(errs)
     print(f"worst: {worst * 100:.4f}%  (limit 0.5%)")
     if worst > 0.005:
         print("FAIL: fit accuracy exceeds 0.5% limit", file=sys.stderr)
+        sys.exit(1)
+    if max(mis_a, mis_b) > 0.03:
+        print("FAIL: typed s_f inconsistent with h_f/v_f (transcription?)",
+              file=sys.stderr)
         sys.exit(1)
 
     def lit(coeffs: np.ndarray) -> str:
@@ -188,7 +275,8 @@ Validity ranges:
 - temperature family (condenser/deaerator/NPSH): 30–150 degC
   (303.15–423.15 K; psat 4.2–476 kPa)
 
-Units: SI throughout — p [Pa], T [K], h/u [J/kg], v [m3/kg], rho [kg/m3].
+Units: SI throughout — p [Pa], T [K], h/u [J/kg], v [m3/kg], rho [kg/m3],
+s [J/(kg K)].
 
 Accuracy vs source points (max relative error, limit 0.5%):
 {report_text}
@@ -213,11 +301,15 @@ _D_VF = {dlit(c_vf)}
 _D_LNVG = {dlit(c_lnvg)}
 _D_UF = {dlit(c_uf)}
 _D_UG = {dlit(c_ug)}
+_SF = {lit(c_sf)}
+_SG = {lit(c_sg)}
 
 _LNPSAT = {lit(c_lnpsat)}
 _TSAT_LOW = {lit(c_tsat_low)}
 _HF_T = {lit(c_hf_t)}
 _VF_T = {lit(c_vf_t)}
+_SF_T = {lit(c_sf_t)}
+_HG_T = {lit(c_hg_t)}
 
 
 def _horner(c: tuple, x: float) -> float:
@@ -262,6 +354,17 @@ def u_f(p: float) -> float:
 def u_g(p: float) -> float:
     """Sat. vapor internal energy [J/kg] vs pressure [Pa] (3–12 MPa)."""
     return _horner(_UG, log(p / P_REF))
+
+
+def s_f(p: float) -> float:
+    """Sat. liquid entropy [J/(kg K)] vs pressure [Pa] (3–12 MPa). 0.4.0."""
+    return _horner(_SF, log(p / P_REF))
+
+
+def s_g(p: float) -> float:
+    """Sat. vapor entropy [J/(kg K)] vs pressure [Pa] (3–12 MPa). 0.4.0;
+    fitted to s_f + h_fg/Tsat (Clausius), not to transcribed s_g."""
+    return _horner(_SG, log(p / P_REF))
 
 
 # d/dp derivatives (chain rule through z = ln(p/P_REF): d/dp = (d/dz)/p)
@@ -322,6 +425,16 @@ def hf_t(t: float) -> float:
 def rho_f_t(t: float) -> float:
     """Sat. liquid density [kg/m3] vs temperature [K] (303.15–423.15 K)."""
     return 1.0 / _horner(_VF_T, t)
+
+
+def sf_t(t: float) -> float:
+    """Sat. liquid entropy [J/(kg K)] vs temperature [K] (303.15–423.15 K). 0.4.0."""
+    return _horner(_SF_T, t)
+
+
+def hg_t(t: float) -> float:
+    """Sat. vapor enthalpy [J/kg] vs temperature [K] (303.15–423.15 K). 0.4.0."""
+    return _horner(_HG_T, t)
 '''
     OUT_PATH.write_text(module)
     print(f"wrote {OUT_PATH}")

@@ -3,6 +3,7 @@
 plot set and a CSV export.
 
 Usage: python scripts/run_scenario.py <name|path.yaml> [--plots out/] [--csv FILE]
+           [--events] [--fidelity two_state_1e|astrom_bell_3e]
 
 <name> resolves against the packaged canonical scenarios (load_step,
 cp1_trip_recovered, cp1_trip_unrecovered); anything else is read as a path.
@@ -17,7 +18,16 @@ import argparse
 from pathlib import Path
 
 from hotwell import data
+from hotwell.plant import load_config
+from hotwell.scenario import load_scenario
 from hotwell.simulator import Simulator
+
+#: The two plant fidelities the HANDOFF tables report (0.4.0): drum model and
+#: three-element feedwater switch. two_state_1e is the baseline config.
+FIDELITIES = {
+    "two_state_1e": ("two_state", False),
+    "astrom_bell_3e": ("astrom_bell", True),
+}
 
 # Validated categorical palette (dataviz reference, light mode, fixed order).
 C1, C2, C3, C4, C5 = "#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"
@@ -30,9 +40,15 @@ def resolve(name_or_path: str) -> data.Resource:
     return data.builtin_scenarios().get(name_or_path, name_or_path)
 
 
-def run(scenario_path: data.Resource):
+def run(scenario_path: data.Resource, fidelity: str = "two_state_1e"):
     """Run to completion, collecting alarm transitions for the timeline."""
-    sim = Simulator.from_scenario(scenario_path)
+    model, three_element = FIDELITIES[fidelity]
+    cfg = load_config()
+    cfg["drum"]["model"] = model
+    cfg["control"]["drum_level"]["three_element"] = three_element
+    sc = load_scenario(scenario_path)
+    sim = Simulator(cfg, scenario=sc)
+    sim.initialize_steady_state(sc.load_mw)
     transitions: list[tuple[float, str, str]] = []
     prev: dict[str, str] = {}
     while sim.t < sim.scenario.max_t:
@@ -243,9 +259,11 @@ def main() -> None:
     ap.add_argument("--csv", type=Path, default=None, metavar="FILE")
     ap.add_argument("--events", action="store_true",
                     help="print every alarm transition (the cascade table)")
+    ap.add_argument("--fidelity", choices=sorted(FIDELITIES), default="two_state_1e")
     args = ap.parse_args()
 
-    sim, transitions = run(resolve(args.scenario))
+    sim, transitions = run(resolve(args.scenario), args.fidelity)
+    print(f"fidelity: {args.fidelity}")
     print_report(sim)
     if args.events:
         # The HANDOFF cascade tables are transcribed from this output — keep

@@ -53,6 +53,24 @@ def main() -> None:
     print(f"NPSH margins: FP1 {aux.feed_flow.margin[0]:.2f} m, "
           f"CP1 {aux.cond_flow.margin[0]:.2f} m")
     print(f"total water inventory: {rep.mass_total / 1e3:.2f} t")
+    print()
+    # 0.4.0 (M2): backpressure-dependent specific work. Sensitivities are
+    # central differences of Turbine.specific_work at this operating point.
+    tb = sim.plant.turbine
+    pd, pc = aux.p_drum, aux.p_cond
+    w = tb.specific_work(pd, pc)
+    dpc, dpd = 10.0, 1.0e3  # Pa
+    dw_dpc = (tb.specific_work(pd, pc + dpc) - tb.specific_work(pd, pc - dpc)) / (2 * dpc)
+    dw_dpd = (tb.specific_work(pd + dpd, pc) - tb.specific_work(pd - dpd, pc)) / (2 * dpd)
+    inhg = 3386.388640341  # Pa per inHg
+    print("-- turbine (0.4.0) --")
+    print(f"eta_t (derived):    {tb.eta_t:.6f}")
+    print(f"specific work:      {w / 1e3:8.3f} kJ/kg at p_drum {pd / 1e6:.4f} MPa, "
+          f"p_cond {pc / 1e3:.4f} kPa")
+    print(f"dw/dp_cond:         {dw_dpc:8.3f} J/kg/Pa = {dw_dpc * 1e3 / w * 100:+.3f} %/kPa"
+          f" = {dw_dpc * inhg / w * 100:+.3f} %/inHg")
+    print(f"dw/dp_drum:         {dw_dpd * 1e6:8.3f} J/kg/MPa = "
+          f"{dw_dpd * 1e6 / w * 100:+.3f} %/MPa")
 
 
 if __name__ == "__main__":

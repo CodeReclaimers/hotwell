@@ -12,7 +12,8 @@ Validity ranges:
 - temperature family (condenser/deaerator/NPSH): 30–150 degC
   (303.15–423.15 K; psat 4.2–476 kPa)
 
-Units: SI throughout — p [Pa], T [K], h/u [J/kg], v [m3/kg], rho [kg/m3].
+Units: SI throughout — p [Pa], T [K], h/u [J/kg], v [m3/kg], rho [kg/m3],
+s [J/(kg K)].
 
 Accuracy vs source points (max relative error, limit 0.5%):
 tsat         max rel err 0.0009%
@@ -26,6 +27,11 @@ psat(ln)     max rel err 0.0199%
 tsat_lowp    max rel err 0.0020%
 hf_T         max rel err 0.0053%
 vf_T         max rel err 0.0512%
+s_f          max rel err 0.0049%
+s_g(deriv)   max rel err 0.0038%
+sf_T         max rel err 0.0232%
+hg_T         max rel err 0.0023%
+s_f row-step vs integral of (dh-v dp)/T: worst mismatch family A 0.395%, family B 0.239% (gate 3%)
 """
 from __future__ import annotations
 
@@ -124,6 +130,20 @@ _D_UG = (
     -184394.61096904424,
     -91252.31610012882,
 )
+_SF = (
+    14.614111237045234,
+    46.73366125404135,
+    116.4161593821149,
+    656.1447776452758,
+    3207.6059661208906,
+)
+_SG = (
+    -29.062305756779832,
+    -86.73949387740171,
+    -150.89471365924567,
+    -543.1189144939208,
+    5744.4341277834565,
+)
 
 _LNPSAT = (
     -1.0896435287054751e-09,
@@ -150,6 +170,18 @@ _VF_T = (
     2.531955544454301e-09,
     -1.3478950738839715e-06,
     0.001163698250416929,
+)
+_SF_T = (
+    3.639381552424923e-05,
+    -0.054519476436607164,
+    36.77633998094608,
+    -6715.422506899367,
+)
+_HG_T = (
+    -0.012226613965750706,
+    10.881637241992342,
+    -1436.1072535955489,
+    2331599.363875496,
 )
 
 
@@ -195,6 +227,17 @@ def u_f(p: float) -> float:
 def u_g(p: float) -> float:
     """Sat. vapor internal energy [J/kg] vs pressure [Pa] (3–12 MPa)."""
     return _horner(_UG, log(p / P_REF))
+
+
+def s_f(p: float) -> float:
+    """Sat. liquid entropy [J/(kg K)] vs pressure [Pa] (3–12 MPa). 0.4.0."""
+    return _horner(_SF, log(p / P_REF))
+
+
+def s_g(p: float) -> float:
+    """Sat. vapor entropy [J/(kg K)] vs pressure [Pa] (3–12 MPa). 0.4.0;
+    fitted to s_f + h_fg/Tsat (Clausius), not to transcribed s_g."""
+    return _horner(_SG, log(p / P_REF))
 
 
 # d/dp derivatives (chain rule through z = ln(p/P_REF): d/dp = (d/dz)/p)
@@ -255,3 +298,13 @@ def hf_t(t: float) -> float:
 def rho_f_t(t: float) -> float:
     """Sat. liquid density [kg/m3] vs temperature [K] (303.15–423.15 K)."""
     return 1.0 / _horner(_VF_T, t)
+
+
+def sf_t(t: float) -> float:
+    """Sat. liquid entropy [J/(kg K)] vs temperature [K] (303.15–423.15 K). 0.4.0."""
+    return _horner(_SF_T, t)
+
+
+def hg_t(t: float) -> float:
+    """Sat. vapor enthalpy [J/kg] vs temperature [K] (303.15–423.15 K). 0.4.0."""
+    return _horner(_HG_T, t)

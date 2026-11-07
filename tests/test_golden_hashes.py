@@ -1,6 +1,6 @@
 """0.4.0 M0 — golden-hash gate.
 
-Every 0.4.0 milestone except M2 (the deliberate physics change) must leave
+Every 0.4.0 milestone after M2 (the deliberate physics change) must leave
 these unchanged (plan invariant I1: a new feature at its default is
 bit-identical to the feature not existing).
 
@@ -21,7 +21,11 @@ for "what a consumer saw is unchanged"; neither one substitutes for the other.
 Observation goldens re-pinned 2026-11-07 when the encoding gained the alarm
 list (Alan's amendment, before M2); the state goldens didn't change.
 
-M2 re-pins the values on purpose; the commit that does so must say why.
+RE-PINNED IN M2 (2026-11-07), deliberately: backpressure- and inlet-pressure-
+dependent turbine work plus the COND_P_HIHI trip is the one hash-breaking
+milestone of 0.4.0. Values from `scripts/golden_hashes.py` on the M2 tree (two
+identical runs). Before M2 the values were the 0.3.0 ones (9464eb2, see git
+history). Every later milestone must leave these unchanged.
 """
 import pytest
 
@@ -38,29 +42,29 @@ FIDELITIES = {
 # (fidelity, scenario) -> (steps, state_history_hash, observation_hash)
 GOLDEN = {
     ("two_state_1e", "cp1_trip_unrecovered"): (
-        8546,
-        "2747189ef192feec66f20965e9b13665c84873fa88ae36e490c433ad4b7890be",
-        "6267b34d12a5b7885e77392f3bcce1fd69f7929509ae7b65cafc4095c9d5fa9c"),
+        8550,
+        "2f2c4a18fc03617cb06f40ec25d18cc063c88879e8bacae942a68fd858c9b66f",
+        "7daee8b52cf34eb2113da57ef088b746e3b964458bafe72fb6b5bf9290c55ab0"),
     ("two_state_1e", "cp1_trip_recovered"): (
         18000,
-        "892d62826d702d6485643d3c6e177e38f1d35c80ee956b7f457c973b09558d6a",
-        "9609d61bad27ebc78033aab9320166564f570029e5d81e332e53502a7c57537f"),
+        "dcd1b3a5290214940b80fa1ad34aea220d996637d35c4b1b8803b0ff3911439a",
+        "61c3cb8a4bb1f709ec09be32eadfc9e3a4c1f211d7f91f1b665fa1323678e6eb"),
     ("two_state_1e", "load_step"): (
         18000,
-        "20a7aae2e85dba718f8ab3325d4c603c1c046e6af2df02d9998e9e8a5a15fa58",
-        "8f8b9aeebce902bc3900ffb811815d7be650de4ec1d0d76e9bfcdfc531ff479a"),
+        "ac2199cc8b0b51a603464933c78cff344a18a6ff042c2949161f9d40ff5352d4",
+        "3791d20afc51aa16e2199aba4731243d5833eeffdd95978da873cd35fea5aa26"),
     ("astrom_bell_3e", "cp1_trip_unrecovered"): (
-        10458,
-        "5d4c8ed27b0f92c0bd250eb0cca2ab388e2f9fddcc1ec7940a4a3ab8ebb81f3d",
-        "2fc15ff34ca362cc3061d3beedace954b357a98cff2e90dfba21c2fc0e2a1be2"),
+        10462,
+        "c1614e37ffb8ddd8d8bbe92d3c791099d25c93372e68388f2615b97cd6e5df3c",
+        "0dc989c19e1df3e2ab8a5f6d3d6bd35c6ee8b416224832a9fbd83f5fc913b17c"),
     ("astrom_bell_3e", "cp1_trip_recovered"): (
         18000,
-        "bb47b9ea951ff6eb2ef7a1ab3121f98fcff99d787442b7390d23b7f0a5fed03e",
-        "a52c431cee45ef2da0a45b0b7dd83a6a35a9f9587886327a9c85da165738b200"),
+        "6deb4b0f17a97b7ab15b97bcada94191b801f52d918173c8583bf14bf2ddf189",
+        "5da930b13efe0b021c284a9ce0f5e565dd1cd67a265daa0f7aff33fb6fb73e33"),
     ("astrom_bell_3e", "load_step"): (
         18000,
-        "0fb8701ea8ea97afa4fcdfe1f549bccee7b21beecaa710858e8082bdf14d4754",
-        "ff6473a8de5bb57f2e7e9d0b2a853ac4dc84a637bdec1a8259e0a6d031fb99eb"),
+        "01781e1723040415e48ee756387efe93856b3c0a9aaa4d0020fe5b9400b9d206",
+        "4880271e46de549490676b5ca16c2f81f0ebebca8e8aba3780f369651fb13df9"),
 }
 
 

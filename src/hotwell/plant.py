@@ -172,6 +172,13 @@ class Plant:
 
         self.n_states = reg.n
 
+        # 0.4.0: calibrate turbine efficiency at the design state: design drum
+        # pressure, and the condenser pressure the condenser model gives at
+        # rated exhaust flow (not a separately typed 7 kPa).
+        p_d = cfg["design"]["p_drum"]
+        tp = self.turbine.tp
+        self.turbine.set_design(p_d, self.condenser.p_cond(tp.k_t * tp.x_rated * p_d, 0.0))
+
         # design-point flows (used by steady init and the AB drum's V_sd0)
         if isinstance(self.drum, AstromBellDrum):
             p0, _, _, m_fw_r, q_fire_r = self.design_point()
@@ -260,7 +267,8 @@ class Plant:
                                      res_f.q[1], res_f.head, rho_da))
         p_e = self.loads.p_elec(omega, omega0, disc.nonvital_connected,
                                 disc.breaker_closed, p_ss)
-        self.turbine.deriv(yl, ydot, x_thr, p_drum, p_e)
+        w_t = self.turbine.specific_work(p_drum, p_cond)
+        self.turbine.deriv(yl, ydot, x_thr, p_drum, p_e, w_t)
         self.condenser.deriv(yl, ydot, m_exh, m_cond)
         da.deriv(yl, ydot, m_cond, m_peg, m_fw)
 
@@ -270,12 +278,12 @@ class Plant:
         self.throttle.deriv(yl, ydot, cmds.throttle_cmd)
         self.firing.deriv(yl, ydot, cmds.firing_cmd)
 
-        h_exh = h_g - self.turbine.tp.w_spec
+        h_exh = h_g - w_t
         aux = Aux(
             p_drum=p_drum, drum_level=drum_out.level, h_g_drum=h_g,
             m_throttle=m_thr, m_exhaust=m_exh, m_relief=m_relief,
             m_peg=m_peg, m_cond=m_cond, m_fw=m_fw, q_fire=q_fire,
-            p_mech=self.turbine.p_mech(yl), p_elec=p_e,
+            p_mech=self.turbine.p_mech(yl, w_t), p_elec=p_e,
             p_station_service=p_ss, p_cond=p_cond,
             q_cond_duty=self.condenser.q_cond(m_exh, h_exh, p_cond),
             p_damping=self.turbine.rp.d_m * (omega - omega0) * omega,

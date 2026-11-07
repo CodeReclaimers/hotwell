@@ -37,10 +37,13 @@ drum:
                           #      shows ~5 m3 at medium load), pre-scale
 
 turbine:
-  # k_t = P_rated/(x_rated * w_spec * p_drum) so the droop law, rated flow,
+  # k_t = P_rated/(x_rated * w_design * p_drum) so the droop law, rated flow,
   # and rated power are exactly consistent: 76.923 kg/s at x=0.85, 8 MPa.
   k_t: 1.131221719457014e-5   # kg/(s*Pa)
-  w_spec: 780.0e+3        # J/kg — constant specific work (8 MPa sat -> 7 kPa, eta 0.80)
+  # 0.4.0: specific work is eta_t * isentropic drop (p_drum -> p_cond); eta_t
+  # is derived so w = w_design exactly at the design state (8 MPa, the
+  # condenser model's pressure at rated exhaust = 7.0 kPa).
+  w_design: 780.0e+3      # J/kg
   tau_chest: 0.4          # s
   x_rated: 0.85           # throttle position at rated flow/pressure
 

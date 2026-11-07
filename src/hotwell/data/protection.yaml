@@ -60,3 +60,7 @@ conditions:
      latching: false, actions: [alarm], label: ["DA LEVEL", "HIGH"]}
   - {id: COND_P_HI,     signal: cond_pressure, op: gt, setpoint: 12.0e+3, delay: 5.0,
      latching: false, actions: [alarm], label: ["COND PRESS", "HIGH"]}
+  # 0.4.0 (plan M2, Q2): low-vacuum turbine trip. 18 kPa sits inside the
+  # cond_pressure instrument range (0-20 kPa), so the trip stays observable.
+  - {id: COND_P_HIHI,   signal: cond_pressure, op: gt, setpoint: 18.0e+3, delay: 5.0,
+     latching: true,  actions: [turbine_trip], label: ["COND PRESS", "HIGH HIGH"]}

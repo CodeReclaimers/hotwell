@@ -50,7 +50,7 @@ def test_loaders_work_from_a_directory_with_no_checkout(tmp_path):
         cfg = load_config()
         assert cfg["design"]["p_drum"] == pytest.approx(8.0e6)
         table = load_protection_table()
-        assert len(table.conditions) == 19
+        assert len(table.conditions) == 20  # 19 in 0.3.0 + COND_P_HIHI (0.4.0 M2)
         sc = load_scenario(data.builtin_scenarios()["cp1_trip_recovered"])
         assert sc.name == "cp1_trip_recovered"
         assert sc.seed == 42
@@ -80,6 +80,6 @@ def test_path_overrides_still_accepted(tmp_path):
     custom = tmp_path / "custom.yaml"
     custom.write_text(data.read_text(data.protection_table_path()))
     table = load_protection_table(custom)
-    assert len(table.conditions) == 19
+    assert len(table.conditions) == 20  # 19 in 0.3.0 + COND_P_HIHI (0.4.0 M2)
     # str and Path both accepted
-    assert len(load_protection_table(str(custom)).conditions) == 19
+    assert len(load_protection_table(str(custom)).conditions) == 20

@@ -29,7 +29,7 @@ def write_table(tmp_path, extra=""):
 
 def test_every_shipped_condition_has_a_legend_that_fits_a_window():
     table = load_protection_table()
-    assert len(table.conditions) == 19
+    assert len(table.conditions) == 20  # 19 in 0.3.0 + COND_P_HIHI (0.4.0 M2)
     for c in table.conditions:
         assert c.label, f"{c.id} has no label"
         assert 1 <= len(c.label) <= LABEL_MAX_LINES
@@ -37,7 +37,7 @@ def test_every_shipped_condition_has_a_legend_that_fits_a_window():
             assert len(line) <= LABEL_MAX_CHARS, (c.id, line, len(line))
     widest = max((len(ln), c.id, ln)
                  for c in table.conditions for ln in c.label)
-    print(f"\n  19 legends, widest line {widest[0]} chars: "
+    print(f"\n  {len(table.conditions)} legends, widest line {widest[0]} chars: "
           f"{widest[1]} {widest[2]!r}")
 
 

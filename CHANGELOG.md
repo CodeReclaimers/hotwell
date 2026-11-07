@@ -28,6 +28,34 @@
   `ValueError`.
 - `Simulator.streams`: the run's `StreamBank`. Nothing draws from it yet.
 
+### Changed (M2 — **PHYSICS CHANGE: every trajectory shifts; 0.3.0 hashes and session logs no longer reproduce**)
+
+- **Turbine specific work depends on drum and condenser pressure.**
+  `w = eta_t · Δh_s`, the isentropic drop from saturated vapour at `p_drum`
+  to the wet region at `p_cond`; `eta_t` (0.799126) is derived so that `w`
+  equals `turbine.w_design` (780 kJ/kg) at the design state, which keeps the
+  60 MW / 76.923 kg/s / droop anchors exact. Condenser backpressure now
+  costs output: −1.414 %/kPa at rated. `h_exh = h_g − w` keeps the energy
+  audit exact. The throttling loss across the governor valve is not modelled.
+- **Config key renamed** `turbine.w_spec` → `turbine.w_design`.
+  `TurbineParams.w_spec` → `w_design`; `Turbine.p_mech(y)` → `p_mech(y, w)`;
+  `Turbine.deriv` takes `w`.
+- **Protection: `COND_P_HIHI`** (cond_pressure > 18 kPa for 5 s, latching →
+  turbine trip; legend `COND PRESS / HIGH HIGH`). The table has 20 conditions.
+- Canonical cascade shifts ≤ 0.30 s; ordering and first-out unchanged (tables
+  in HANDOFF).
+
+### Added (M2)
+
+- `hotwell.components.turbine.isentropic_drop(p_in, p_cond)`,
+  `Turbine.set_design`, `Turbine.specific_work`, `Turbine.eta_t`.
+- Steam-property fits `s_f(p)`, `s_g(p)` (derived s_g = s_f + h_fg/T),
+  `sf_t(T)`, `hg_t(T)`; the generator gains an oracle-free s_f transcription
+  guard. `scripts/audit_steam_props.py` audits all typed tables and fits
+  against IAPWS-97 (optional `iapws`, not a dependency).
+- `scripts/run_scenario.py --fidelity two_state_1e|astrom_bell_3e`;
+  `scripts/steady_state.py` prints the turbine sensitivities.
+
 ### Changed
 
 - `Simulator.rng` is now documented as unused (kept for 0.3.0 compatibility).

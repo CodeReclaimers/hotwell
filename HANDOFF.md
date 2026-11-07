@@ -25,6 +25,84 @@ answered there). Milestone status is in `.plan-checkpoint.md`.
   contract** once noise lands (M3): `test_pinned_raw_draws_numpy_version_gate`
   fails on a numpy that changes PCG64/SeedSequence or the `normal()`
   algorithm. The bench repo should pin numpy for released item sets.
+- **M0 amendment.** The observation hash also covers alarm states (Alan).
+- **Q3 done.** Tag `v0.3.0` → `9464eb2` (local, not pushed). The panel venv
+  now has a **non-editable** hotwell 0.3.0 installed from that tag
+  (`uv pip install "hotwell @ git+file:///home/alan/plant-sim/hotwell@v0.3.0"`);
+  panel suite 99 passed before and after. **Hazard:** the panel README's dev
+  setup still says `uv pip install -e ../hotwell`, which silently re-points the
+  panel at the 0.4.0 tree. Not edited (panel repo out of scope).
+- **M2 complete: physics change, hashes re-pinned.** Turbine specific work
+  is `w = eta_t · Δh_s(p_drum → p_cond)` (isentropic, saturated drum vapour
+  into the wet region), with `eta_t` derived so `w = 780 kJ/kg` exactly at the
+  design state; low-vacuum trip `COND_P_HIHI` (18 kPa, 5 s, latching →
+  turbine trip). Config key `turbine.w_spec` → `turbine.w_design` (renamed:
+  it is no longer the work at every state).
+
+  | Quantity (60 MW rated, `scripts/steady_state.py`) | Value |
+  |---|---|
+  | eta_t (derived) | 0.799126 |
+  | w at design (8 MPa, 7.0000 kPa) | 780.000 kJ/kg |
+  | ∂w/∂p_cond | −11.026 J/kg/Pa = **−1.414 %/kPa = −4.787 %/inHg** |
+  | ∂w/∂p_drum | +4918.6 J/kg/MPa = +0.631 %/MPa |
+  | Design point table (flows, powers, positions, NPSH, inventory) | identical to 0.3.0 to the printed digit |
+
+  The backpressure sensitivity is the ideal isentropic value (∂h/∂p|_s = v),
+  checked against Clapeyron in `tests/test_m2_turbine.py` (rel ≤ 4.4e-4 over
+  5.5–18 kPa × 7–9 MPa). It is **steeper than large-unit rules of thumb**
+  because exhaust/leaving losses are not modelled. The plan's hand estimate
+  (−1.1 %/kPa) was a 7→12.35 kPa chord; the local slope at 7 kPa is steeper.
+  **Not modelled (for the M7 limitations chapter): throttling loss across the
+  governor valve** (the expansion starts from the drum state; that would need
+  superheated properties).
+
+  New property fits: `s_f(p)`, `s_g(p)` (s_g derived as s_f + h_fg/T, not
+  typed), `sf_t(T)`, `hg_t(T)`. Typed values audited against IAPWS-97 via the
+  optional `scripts/audit_steam_props.py` (needs `iapws`, which is **not** a
+  dependency): worst 0.074 % overall, and that worst case is the *existing*
+  0.3.0 psat table; the new entries are ≤ 0.025 %. The generator also checks
+  typed s_f rows against ∫(dh_f − v_f dp)/T with no oracle; a 0.7038→0.7083
+  digit swap trips it (7.5 % vs the 3 % gate).
+
+  Cascade re-measured (`run_scenario.py cp1_trip_unrecovered --events
+  --fidelity …`), first activation in s after the CP-1 trip, 0.3.0 → 0.4.0:
+
+  | Event | two_state + 1E | AB + 3E |
+  |---|---|---|
+  | DRUM_P_HI | +19.60 → +19.30 | +90.30 → +90.30 |
+  | DA_LO | +23.15 → +23.15 | +21.95 → +21.95 |
+  | HOTWELL_HI | +57.25 → +57.35 | +57.20 → +57.20 |
+  | FP1_SUCTION trip | +92.80 → **+92.90** | +77.90 → +78.05 |
+  | DRUM_LVL_HI | — | +89.10 → +89.25 |
+  | SAFETY_VALVE | +98.00 → +98.15 | +99.05 → +99.00 |
+  | DRUM_LVL_HIHI → turbine trip | — | +100.50 → +100.45 |
+  | FREQ_HI | — | +102.55 → +102.50 |
+  | DRUM_LVL_LO | +112.50 → +112.70 | +202.45 → +202.60 |
+  | DRUM_LVL_LOLO → MFT, plant dead | +127.30 → **+127.50** | +222.90 → +223.10 |
+
+  Order and first-out chains unchanged; every shift ≤ 0.30 s. T6 droop:
+  Δf −0.3100 → −0.3200 Hz vs analytic −0.3181 (97.4 % → 100.6 %). The
+  analytic formula assumes constant w; higher exhaust flow now raises p_cond
+  and lowers w, so frequency settles slightly lower. T8 levels unchanged
+  (drum +1.0 mm, DA +0.002 m, HW −0.003 m). AB swell +5.9 → +6.1 mm. FP-2
+  start +0.326 → +0.329 MW. The end-of-run energy residuals of the dead plant
+  (−28.49 %, +99.97 %) equal 0.3.0's to within 0.07 percentage points; that's
+  the known transient behaviour of a steady-state diagnostic.
+
+  New behaviour (tests): a +5 kPa air-ingress step at rated settles at
+  Δf −0.1623 Hz vs droop-predicted −0.1638, ΔP_e −0.2205 vs −0.2228 MW (vacuum
+  loss now costs output); a 100 Pa/s air-ingress ramp starting at t = 10 s
+  alarms COND_P_HI at t = 64.1 s and trips on COND_P_HIHI at t = 123.1 s
+  (first out), sensed 18.55 kPa at the trip.
+
+  **For the panel's 0.4.0 migration:** the protection table now has **20**
+  conditions; the board's annunciator capacity/manifest needs a window for
+  `COND_P_HIHI` (legend `COND PRESS / HIGH HIGH`); casualty pins re-measure
+  per the table above; 0.3.0 session logs will not replay.
+
+  Pre-existing (0.3.0 as well, not changed): the steady init's station-service
+  fixed point stops within 1 kW (`simulator.py`, `< 1e3`), so the solved
+  state sits +1.0e-4 kg/s / +80 W off the exact design flow.
 
 ## 0.3.0 — station-service pump loads (2026-08-29)
 
@@ -133,6 +211,8 @@ docstring.
 
 ## Achieved casualty timings vs targets
 
+(0.3.0 values. For 0.4.0 M2 re-measurements see the 0.4.0 section at the top.)
+
 `cp1_trip_unrecovered` (CP-1 overload trip at t = 300 s), full annunciator sequence:
 
 (Re-measured under 0.3.0 station-service loads, 2026-08-29 —
@@ -165,6 +245,8 @@ annunciation (`--events` prints zero transitions); drum pressure dips to
 7.63 MPa (alarm at 7.2); drum level max excursion −19 mm.
 
 ## Reference design point, achieved values
+
+(Unchanged in 0.4.0 M2 to the printed digit; M2 adds the turbine rows above.)
 
 `scripts/steady_state.py` regenerates this table (60 MW commanded):
 
