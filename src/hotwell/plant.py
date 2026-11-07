@@ -58,6 +58,15 @@ class Discrete:
     breaker_closed: bool = True
     plant_dead: bool = False
     air_ingress: float = 0.0  # Pa added to condenser pressure (scenario hook)
+    # 0.4.0 M5 hidden physical faults (hotwell.faults); 1.0 = healthy.
+    head_factor: dict[str, float] = field(
+        default_factory=lambda: {"cp1": 1.0, "cp2": 1.0, "fp1": 1.0, "fp2": 1.0})
+    cv_factor: dict[str, float] = field(default_factory=lambda: {"frv": 1.0, "lcv": 1.0})
+    rate_factor: dict[str, float] = field(
+        default_factory=lambda: {"fw_valve": 1.0, "throttle": 1.0, "firing": 1.0})
+    stuck: dict[str, float] = field(default_factory=dict)  # actuator -> held value (da_lcv)
+    eta_factor: float = 1.0
+    fouling_factor: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -216,7 +225,7 @@ class Plant:
         m_thr = self.turbine.m_throttle(x_thr, p_drum)
         m_exh = self.turbine.m_chest_out(yl)
 
-        p_cond = self.condenser.p_cond(m_exh, disc.air_ingress)
+        p_cond = self.condenser.p_cond(m_exh, disc.air_ingress, disc.fouling_factor)
         t_c = sp.tsat_lowp(p_cond)
         h_c = sp.hf_t(t_c)
         rho_c = sp.rho_f_t(t_c)
@@ -224,13 +233,15 @@ class Plant:
 
         cp1, cp2 = self.pumps["cp1"], self.pumps["cp2"]
         fp1, fp2 = self.pumps["fp1"], self.pumps["fp2"]
+        hf = disc.head_factor
         res_c = solve_path_flow(
             (cp1, cp2), (yl[cp1.i_s], yl[cp2.i_s]),
             p_supply=p_cond + rho_c * G * (self.z_hw + hw_abs),
             p_demand=self.deaerator.p.p_da + rho_c * G * self.z_da_inlet,
             suction_head=self.z_hw + hw_abs, p_vap_margin=0.0,
             rho=rho_c, k_line=self.k_line_cond,
-            cv=self.cv_lcv, x_valve=cmds.lcv_x, q_warm=self._qw_cond)
+            cv=self.cv_lcv * disc.cv_factor["lcv"], x_valve=cmds.lcv_x,
+            q_warm=self._qw_cond, head_factors=(hf["cp1"], hf["cp2"]))
         self._qw_cond = res_c.q_total
         m_cond = res_c.m_dot
 
@@ -245,12 +256,13 @@ class Plant:
             p_demand=p_drum + rho_da * G * self.z_drum_inlet,
             suction_head=self.z_da + da_abs, p_vap_margin=0.0,
             rho=rho_da, k_line=self.k_line_feed,
-            cv=self.cv_frv, x_valve=yl[self.fw_valve.i_x], q_warm=self._qw_feed)
+            cv=self.cv_frv * disc.cv_factor["frv"], x_valve=yl[self.fw_valve.i_x],
+            q_warm=self._qw_feed, head_factors=(hf["fp1"], hf["fp2"]))
         self._qw_feed = res_f.q_total
         m_fw = res_f.m_dot
 
         m_relief = self.c_sv * p_drum if disc.safety_open else 0.0
-        q_fire = yl[self.firing.i_x] * self.eta_comb * self.q_fuel_max
+        q_fire = yl[self.firing.i_x] * (self.eta_comb * disc.eta_factor) * self.q_fuel_max
         m_s_total = m_thr + m_peg + m_relief
         self.drum.derivatives(yl, ydot, drum_out, q_fire, m_fw, da.h_fw, m_s_total)
 
@@ -274,9 +286,10 @@ class Plant:
 
         for name in PUMP_NAMES:
             self.pumps[name].deriv(yl, ydot, disc.pump_modes[name])
-        self.fw_valve.deriv(yl, ydot, cmds.fw_cmd)
-        self.throttle.deriv(yl, ydot, cmds.throttle_cmd)
-        self.firing.deriv(yl, ydot, cmds.firing_cmd)
+        rf, st = disc.rate_factor, disc.stuck
+        self.fw_valve.deriv(yl, ydot, cmds.fw_cmd, "fw_valve" in st, rf["fw_valve"])
+        self.throttle.deriv(yl, ydot, cmds.throttle_cmd, "throttle" in st, rf["throttle"])
+        self.firing.deriv(yl, ydot, cmds.firing_cmd, "firing" in st, rf["firing"])
 
         h_exh = h_g - w_t
         aux = Aux(

@@ -31,10 +31,13 @@ class Condenser:
         self.p = params
         self.i_m = reg.register("hotwell.M", 8.0e3, "kg", 6.0e3)
 
-    def p_cond(self, m_exhaust: float, air_ingress: float) -> float:
-        """Condenser pressure [Pa]."""
-        return self.p.p0 + self.p.p_load_slope * (m_exhaust / self.p.m_exh_rated) \
-            + air_ingress
+    def p_cond(self, m_exhaust: float, air_ingress: float,
+               fouling_factor: float = 1.0) -> float:
+        """Condenser pressure [Pa]. `fouling_factor` (0.4.0 M5) scales the
+        load-dependent term (tube fouling worsens heat transfer in proportion
+        to duty); air ingress is additive. Load dependence separates the two."""
+        return self.p.p0 + (self.p.p_load_slope * fouling_factor) \
+            * (m_exhaust / self.p.m_exh_rated) + air_ingress
 
     def level_abs(self, y: list[float], rho: float) -> float:
         """Hotwell level above hotwell bottom [m]."""

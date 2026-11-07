@@ -49,7 +49,23 @@
 - `scripts/level_mode_ringdown.py`: ring-down / damping estimate of the slow
   drum-level mode under three-element control.
 
-### Changed (M4b — control retune; AB + 3E hashes change, two_state + 1E unchanged)
+### Added (M5 — hidden physical faults; hash-neutral, active only when events fire)
+
+- New scenario events (module `hotwell.faults`, factors in `Discrete`, frozen
+  during RK4, optional `ramp_s` with an exact endpoint):
+  `pump_degrade` (per pump, H0·f), `valve_degrade` (frv|lcv, Cv·f),
+  `actuator_stuck` (fw_valve|throttle|firing|da_lcv, optional `t_end`;
+  position frozen while the controller output keeps moving), `actuator_slow`
+  (slew limit·f), `firing_degrade` (combustion efficiency·f),
+  `condenser_fouling` (load-dependent condenser term·f, separable from
+  additive air ingress by load dependence). Validated at scenario load. A
+  zero-magnitude fault (f = 1) is bit-identical to no fault.
+- `tube_leak` is deferred to M5b (it needs the makeup system).
+- API: `solve_path_flow(..., head_factors=)`, `Actuator.deriv(..., stuck,
+  rate_factor)`, `Condenser.p_cond(..., fouling_factor)`, `Simulator.fault_driver`.
+- `scripts/fault_detectability.py`: rough oracle-twin detectability sweep.
+
+; AB + 3E hashes change, two_state + 1E unchanged)
 
 - **Three-element level trim retuned** `control.drum_level_3e.trim` kp 15 →
   30, ki 0.15 → 0.075 (integral time 100 → 400 s). The old tuning left the

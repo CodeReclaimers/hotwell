@@ -11,12 +11,13 @@ from dataclasses import dataclass, field
 import yaml
 
 from hotwell import data
+from hotwell.faults import PLANT_FAULT_TYPES, check_plant_fault
 from hotwell.sensors import OBSERVATION_SPEC, SENSOR_FAULT_KINDS, SensorFault
 
 _INSTRUMENTS = {s.name for s in OBSERVATION_SPEC}
 
 EVENT_TYPES = {"trip_pump", "inhibit_start", "sensor_fault", "set_air_ingress",
-               "action", "set_load"}
+               "action", "set_load"} | PLANT_FAULT_TYPES  # 0.4.0 M5
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,8 @@ def load_scenario(path: data.Resource) -> Scenario:
             _check_sensor_fault(raw["name"], params)
         elif etype == "set_load":
             _check_set_load(raw["name"], params)
+        elif etype in PLANT_FAULT_TYPES:
+            check_plant_fault(raw["name"], etype, params)
         events.append(ScenarioEvent(t=float(row["t"]), type=etype, params=params))
     events.sort(key=lambda e: e.t)
     return Scenario(

@@ -27,10 +27,16 @@ class Actuator:
         self.p = params
         self.i_x = reg.register(f"{name}.x", initial, "-", 1.0)
 
-    def deriv(self, y: list[float], ydot: list[float], cmd: float) -> None:
+    def deriv(self, y: list[float], ydot: list[float], cmd: float,
+              stuck: bool = False, rate_factor: float = 1.0) -> None:
+        """0.4.0 M5: `stuck` freezes the position (zero derivative);
+        `rate_factor` scales the slew limit (a sticky positioner)."""
+        if stuck:
+            ydot[self.i_x] = 0.0
+            return
         cmd = 0.0 if cmd < 0.0 else (1.0 if cmd > 1.0 else cmd)
         r = (cmd - y[self.i_x]) / self.p.tau
-        rate = self.p.rate
+        rate = self.p.rate * rate_factor
         ydot[self.i_x] = -rate if r < -rate else (rate if r > rate else r)
 
 

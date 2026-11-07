@@ -217,6 +217,78 @@ answered there). Milestone status is in `.plan-checkpoint.md`.
   116 s is a designable stability boundary. An injected trim mis-tune, or phase
   lag in the loop (e.g. M3 `lag` on drum_level / feed_flow), can produce a
   growing ~30 min oscillation at a predictable rate against a stable baseline.
+- **M5 complete: hidden physical faults** (`hotwell.faults`; `tube_leak`
+  deferred to M5b). Factors live in `Discrete` (frozen during RK4, optional
+  `ramp_s`, exact endpoint); a zero-magnitude fault is bit-identical to none.
+  Signatures (`tests/test_m5_faults.py -s`, settled at 900 s, two_state + 1E):
+  FRV Cv × 0.8 → position ratio 1.2478 (x·Cv const predicts 1.25); LCV
+  1.2530; firing eta × 0.95 → firing ratio 1.0533 (1/0.95 = 1.0526);
+  fouling × 3 → Δp_cond 3164.1 Pa = predicted 3164.1, frequency −0.108 Hz
+  (M2 backpressure). FP-1 head −3 % → FRV 0.5528 → 0.6519, FP-1 current
+  400 → 390 A, and **swapping to FP-2 restores the FRV to 0.5534** (visible only
+  while the degraded pump runs, which makes background swaps diagnostic). A
+  stuck FRV opens a controller-output gap up to 0.43; a stuck DA LCV drives
+  the DA PI to 1.0 and the DA level to −0.435 m. Mass and energy audits close
+  under every fault (energy residual ≤ 6.9e-4 of firing at 900 s).
+  **A cascade worth keeping:** throttle slew × 0.02 turns a +6 MW step into
+  UF_SHED (58.74 Hz) → load rejection → OVERSPEED trip (68.03 Hz) at t = 35.6 s
+  (pinned as a test; the one-step throttle "jump" is the D12 trip slam).
+
+  **Detectability (rough, `scripts/fault_detectability.py`): an oracle-twin
+  bound.** Constant 60 MW, quiet-day noise preset, step onset at 300 s, 1 h;
+  detected when the twin difference exceeds max(3σ, 2 LSB) for 10 s. Delay
+  after onset; left two_state + 1E, right (after `|`) AB + 3E:
+
+  ```
+  fault                                     magnitude     delay  first instrument   |  magnitude     delay  first instrument
+  pump_degrade fp1                              0.995       6 s  fp1_current   |      0.995       2 s  fw_valve_pos
+  pump_degrade fp1                               0.99       1 s  feed_flow   |       0.99       2 s  fw_valve_pos
+  pump_degrade fp1                               0.98       1 s  feed_flow   |       0.98       1 s  fp1_current
+  pump_degrade fp1                               0.97       1 s  feed_flow   |       0.97       1 s  fp1_current
+  pump_degrade cp1                               0.99      27 s  da_lcv_pos   |       0.99      23 s  da_lcv_pos
+  pump_degrade cp1                               0.98       1 s  condensate_flow   |       0.98       1 s  condensate_flow
+  pump_degrade cp1                               0.95       1 s  condensate_flow   |       0.95       1 s  condensate_flow
+  pump_degrade cp1                                0.9       1 s  condensate_flow   |        0.9       1 s  condensate_flow
+  valve_degrade frv                              0.99       n/d  -   |       0.99       n/d  -
+  valve_degrade frv                              0.98      34 s  da_lcv_pos   |       0.98       2 s  fw_valve_pos
+  valve_degrade frv                              0.95       1 s  feed_flow   |       0.95       2 s  fw_valve_pos
+  valve_degrade frv                               0.9       1 s  feed_flow   |        0.9       1 s  fw_valve_pos
+  valve_degrade lcv                              0.99       n/d  -   |       0.99       n/d  -
+  valve_degrade lcv                              0.98      27 s  da_lcv_pos   |       0.98      28 s  da_lcv_pos
+  valve_degrade lcv                              0.95       1 s  condensate_flow   |       0.95       1 s  condensate_flow
+  valve_degrade lcv                               0.9       1 s  condensate_flow   |        0.9       1 s  condensate_flow
+  firing_degrade                                0.998       n/d  -   |      0.998       n/d  -
+  firing_degrade                                0.995       n/d  -   |      0.995       n/d  -
+  firing_degrade                                 0.99      15 s  drum_pressure   |       0.99      99 s  firing_rate
+  firing_degrade                                 0.98       7 s  drum_pressure   |       0.98      21 s  fw_valve_pos
+  condenser_fouling                              1.05       n/d  -   |       1.05       n/d  -
+  condenser_fouling                               1.1       n/d  -   |        1.1       n/d  -
+  condenser_fouling                              1.25       1 s  cond_pressure   |       1.25       1 s  cond_pressure
+  condenser_fouling                               1.5       1 s  cond_pressure   |        1.5       1 s  cond_pressure
+  actuator_slow fw_valve                          0.5       n/d  -   |        0.5       n/d  -
+  actuator_slow fw_valve                          0.2       n/d  -   |        0.2       n/d  -
+  actuator_slow fw_valve                         0.05       n/d  -   |       0.05       n/d  -
+  actuator_slow throttle                          0.5       n/d  -   |        0.5       n/d  -
+  actuator_slow throttle                          0.2       n/d  -   |        0.2       n/d  -
+  actuator_slow throttle                         0.05       n/d  -   |       0.05       n/d  -
+  actuator_slow firing                            0.5       n/d  -   |        0.5       n/d  -
+  actuator_slow firing                            0.2       n/d  -   |        0.2       n/d  -
+  actuator_slow firing                           0.05       n/d  -   |       0.05       n/d  -
+  actuator_stuck fw_valve                                 456 s  da_lcv_pos   |                  4 s  fw_valve_pos
+  actuator_stuck throttle                                   6 s  frequency   |                  6 s  frequency
+  actuator_stuck firing                                    26 s  drum_pressure   |                115 s  fw_valve_pos
+  actuator_stuck da_lcv                                    32 s  da_lcv_pos   |                 36 s  da_lcv_pos
+  ```
+
+  Readings for item design: (1) **actuator_slow is undetectable at constant
+  load** at every factor; it needs a transient (a load ramp or a background
+  operation, M6). (2) **A stuck FRV takes 456 s under 1E but 4 s under 3E**:
+  the 3E flow loop dithers the valve on feed-flow noise, and a stuck valve
+  shows as the dither *stopping*. (3) Smallest detected steps within 1 h: FP
+  head 0.995, CP head 0.99, valve Cv 0.98 (0.99 not detected), firing eta 0.99
+  (0.995 not detected), fouling 1.25 (1.1 not detected). All onsets here
+  are steps; many 1 s detections are the step transient. Ramped onsets need
+  their own sweep (bench repo).
 
 ## 0.3.0 — station-service pump loads (2026-08-29)
 

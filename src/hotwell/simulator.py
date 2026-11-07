@@ -33,6 +33,7 @@ from hotwell.components.pumps import (
 )
 from hotwell.control.loops import Commands, ControlSystem, GovernorParams
 from hotwell.control.pid import PIParams
+from hotwell.faults import PLANT_FAULT_TYPES, FaultDriver
 from hotwell.historian import Historian
 from hotwell.plant import PUMP_NAMES, Aux, Discrete, Plant, load_config
 from hotwell.protection.interlocks import FiredAction, ProtectionEngine
@@ -85,6 +86,7 @@ class Simulator:
                                   self.streams, DT)
         self.load_driver = LoadDriver(self.plant.loads,
                                       cfg["loads"].get("noise"), self.streams, DT)
+        self.fault_driver = FaultDriver(self.disc, DT)
         self.audit_acc = AuditAccumulator()
         self.engine = ProtectionEngine(load_protection_table(protection_path))
         self.scenario = scenario
@@ -261,6 +263,8 @@ class Simulator:
                                           float(p.get("ramp_s", 0.0)))
             elif ev.type == "action":
                 self.apply_actions(p["command"])
+            elif ev.type in PLANT_FAULT_TYPES:
+                self.fault_driver.apply(ev.type, p, self.t, self.commands.lcv_x)
 
     def _trip_pump(self, pump: str, reason: str) -> None:
         if self.disc.pump_modes[pump] in (MODE_STARTING, MODE_RUNNING):
@@ -391,14 +395,18 @@ class Simulator:
         self._apply_scenario_events()
         if actions:
             self.apply_actions(actions)
-        # 1b. load schedule ramps + load process noise (frozen during RK4)
+        # 1b. load schedule ramps + load process noise, plant-fault ramps
+        #     (all frozen during RK4)
         self.load_driver.advance()
+        self.fault_driver.advance(self.t)
         # 2. controllers on previous sensed observation
         cmds = self.control.update(self.last_obs.values, self.dt)
         if self.disc.mft:
             cmds = replace(cmds, firing_cmd=0.0)
         if self.disc.turbine_trip:
             cmds = replace(cmds, throttle_cmd=0.0)
+        if "da_lcv" in self.disc.stuck:   # 0.4.0 M5: the LCV holds; its PI keeps moving
+            cmds = replace(cmds, lcv_x=self.disc.stuck["da_lcv"])
         self.commands = cmds
         # 3. integrate
         y_new, aux = self._rk4()

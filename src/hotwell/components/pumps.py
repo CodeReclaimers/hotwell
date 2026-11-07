@@ -124,6 +124,7 @@ def solve_path_flow(
     cv: float,           # downstream valve coefficient [kg/(s*Pa^0.5)]
     x_valve: float,      # downstream valve position [-]
     q_warm: float,       # warm-start total flow [m3/s]
+    head_factors: tuple[float, float] = (1.0, 1.0),  # 0.4.0 M5 pump_degrade, H0*f
 ) -> PathFlowResult:
     """Solve the quasi-static path flow (scalar root in total flow Q).
 
@@ -138,8 +139,8 @@ def solve_path_flow(
 
     def detail(q_tot: float) -> tuple[float, float, float, float, float, float, float]:
         s1, s2 = speeds
-        a1u = pumps[0].p.h0 * s1 * s1
-        a2u = pumps[1].p.h0 * s2 * s2
+        a1u = pumps[0].p.h0 * head_factors[0] * s1 * s1
+        a2u = pumps[1].p.h0 * head_factors[1] * s2 * s2
         q1, q2 = _split(a1u, pumps[0].p.k, a2u, pumps[1].p.k, q_tot)
         m1 = p_vap_margin + suction_head - pumps[0].p.k_suction * q1 * q1 \
             - pumps[0].npsh_required(q1)
