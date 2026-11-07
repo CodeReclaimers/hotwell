@@ -289,6 +289,56 @@ answered there). Milestone status is in `.plan-checkpoint.md`.
   (0.995 not detected), fouling 1.25 (1.1 not detected). All onsets here
   are steps; many 1 s detections are the step transient. Ramped onsets need
   their own sweep (bench repo).
+- **M5b complete: hotwell makeup system, CP suction protection, `tube_leak`.**
+  Spec approved with all five recommendations (makeup-only; per-pump CP NPSH
+  trips at 0.25 m; hotwell setpoint −0.15 m; water-space leak; direct-command
+  valve). **Gate G1: all six STATE goldens and step counts unchanged;** only
+  the observation goldens were re-pinned (4 new instruments).
+  **G1 first failed, and that's worth keeping:** in `cp1_trip_recovered` the
+  makeup valve opened (max 4.76 kg/s two_state, 379.5 kg added) with the
+  hotwell never below −0.0 mm. Cause: the shared PI's back-calculation
+  anti-windup absorbed −kp·e while the valve sat closed during the CP outage
+  (I ≈ +8), so the valve kicked open once the level came back to ≈ 0, still
+  above setpoint. A bumpless `initialize(0, pv)` also put the opening point at
+  the current level. Fix (approved): a per-loop `anti_windup: conditional` on
+  the hotwell loop only (default stays `backcalc`, so no other loop changes),
+  and I = 0 at init. `test_conditional_anti_windup_does_not_kick_a_closed_valve_open`
+  isolates the mechanism (backcalc I 8.01 → output 1.000; conditional 0.000).
+  **Any loop that sits at a limit for long periods has the same exposure under
+  backcalc.**
+
+  | Gate | Result |
+  |---|---|
+  | G2 1 kg/s leak, means over 6000–11000 s | makeup +0.008 % (two_state) / +0.142 % (AB) of leak; hotwell −150.00 / −149.96 mm (range ±0.5 mm); mass drift ~1e-8; energy residual ≤ 3.6e-4 |
+  | G3 stuck makeup + 1 kg/s leak | HOTWELL_LO at 3996 s; CP1_SUCTION trip at 6009 s vs predicted 5965 s (+0.7 %); FP-1 suction trip follows at 6099.8 s |
+  | G4 capacity | 10.0000 kg/s wide open; √Δp vacuum dependence exact (9.8238 at +5 kPa air) |
+  | G5 | zero leak bit-identical; malformed events fail at load |
+  | G6 quiet days | makeup valve max command 0.0 both fidelities; 0 alarms |
+  | leak trend (0.3 kg/s) | hotwell −0.1353 m/h vs predicted −0.1361 |
+
+  **Spec deviation on G2 (recorded):** gated on time means, not instantaneous
+  values. The loop hunts on the 1 mm hotwell-level resolution (makeup range
+  0.84–1.18 kg/s around 1.00): a quantization limit cycle, like the governor's
+  0.01 Hz dither. The window starts at 6000 s because at 4000–6000 s the AB
+  drum is still shedding inventory (−16.9 kg) and the mean reads −1.18 %.
+  G2 is in the slow set (it made the default gate 4 min 13 s).
+
+  Detectability (G7, `scripts/fault_detectability.py`, same oracle-twin bound):
+
+  ```
+  tube_leak                                       0.1     524 s  hotwell_level
+  tube_leak                                       0.3     192 s  hotwell_level
+  tube_leak                                       1.0      40 s  fw_valve_pos
+  tube_leak                                       3.0      13 s  fw_valve_pos
+  tube_leak                                       0.1     689 s  hotwell_level
+  tube_leak                                       0.3     388 s  hotwell_level
+  tube_leak                                       1.0     123 s  drum_level
+  tube_leak                                       3.0      44 s  drum_level
+  ```
+  (first four rows two_state + 1E, last four AB + 3E). A small leak shows
+  first as the hotwell trend; larger ones through the feed side.
+  **For the panel's migration:** +4 gauges, 22 windows (CP-1/CP-2 SUCTION), a
+  makeup valve with a CST terminal on the mimic, a hotwell-level loop station.
 
 ## 0.3.0 — station-service pump loads (2026-08-29)
 

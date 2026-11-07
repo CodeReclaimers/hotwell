@@ -122,6 +122,7 @@ def test_engine_delay_and_latch():
     # nominal values that trip nothing
     nominal = dict(drum_level=0.0, drum_pressure=8.0e6, frequency=60.0,
                    fp1_npsh_margin=3.0, fp2_npsh_margin=9.0, hotwell_level=0.0,
+                   cp1_npsh_margin=1.0, cp2_npsh_margin=1.0,  # 0.4.0 M5b
                    da_level=0.0, cond_pressure=7.0e3)
     sensed.update(nominal)
     assert eng.evaluate(0.0, sensed) == []
@@ -152,6 +153,7 @@ def test_engine_safety_valve_hysteresis():
     eng = ProtectionEngine(load_protection_table())
     sensed = dict(drum_level=0.0, drum_pressure=8.7e6, frequency=60.0,
                   fp1_npsh_margin=3.0, fp2_npsh_margin=9.0, hotwell_level=0.0,
+                  cp1_npsh_margin=1.0, cp2_npsh_margin=1.0,  # 0.4.0 M5b
                   da_level=0.0, cond_pressure=7.0e3)
     fired = eng.evaluate(0.0, sensed)
     assert [(f.action, f.value) for f in fired] == [("safety_valve", True)]

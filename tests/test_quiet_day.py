@@ -28,6 +28,10 @@ def test_quiet_day(fidelity):
     assert not r.first_out
     assert not r.rejected
     assert abs(r.mass_drift_frac) < 1e-3
+    # M5b G6: makeup never opens in normal operation (no inventory ratchet).
+    # Gate on the makeup VALVE command (truth-side, exact), since the sensed
+    # makeup_flow carries noise around zero.
+    assert r.makeup_max_cmd == 0.0, r.makeup_max_cmd
 
 
 _rd_spec = importlib.util.spec_from_file_location(

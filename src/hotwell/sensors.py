@@ -76,6 +76,11 @@ OBSERVATION_SPEC: tuple[InstrumentSpec, ...] = (
     InstrumentSpec("da_lcv_pos", "-", 0.0, 1.0, 0.005, "DA level control valve position"),
     InstrumentSpec("fp1_npsh_margin", "m", -5.0, 15.0, 0.05, "FP-1 NPSH margin"),
     InstrumentSpec("fp2_npsh_margin", "m", -5.0, 15.0, 0.05, "FP-2 NPSH margin"),
+    # 0.4.0 M5b (appended; existing order unchanged)
+    InstrumentSpec("makeup_flow", "kg/s", 0.0, 20.0, 0.1, "CST makeup flow to condenser"),
+    InstrumentSpec("makeup_valve_pos", "-", 0.0, 1.0, 0.005, "makeup valve position"),
+    InstrumentSpec("cp1_npsh_margin", "m", -5.0, 15.0, 0.05, "CP-1 NPSH margin"),
+    InstrumentSpec("cp2_npsh_margin", "m", -5.0, 15.0, 0.05, "CP-2 NPSH margin"),
 )
 
 

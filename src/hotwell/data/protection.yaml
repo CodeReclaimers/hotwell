@@ -50,6 +50,15 @@ conditions:
   - {id: FP2_SUCTION,   signal: fp2_npsh_margin, op: lt, setpoint: 0.5, delay: 5.0,
      latching: true,  actions: [trip_pump], target: fp2,
      label: ["FP-2 SUCTION", "LOW NPSH"]}
+  # 0.4.0 M5b: CP suction protection (the phase-1 rough edge). CP margin is
+  # 1.00 m at rated and moves 1:1 with hotwell level, so 0.25 m sits near
+  # hotwell -0.75 m, after HOTWELL_LO (-0.5 m).
+  - {id: CP1_SUCTION,   signal: cp1_npsh_margin, op: lt, setpoint: 0.25, delay: 5.0,
+     latching: true,  actions: [trip_pump], target: cp1,
+     label: ["CP-1 SUCTION", "LOW NPSH"]}
+  - {id: CP2_SUCTION,   signal: cp2_npsh_margin, op: lt, setpoint: 0.25, delay: 5.0,
+     latching: true,  actions: [trip_pump], target: cp2,
+     label: ["CP-2 SUCTION", "LOW NPSH"]}
   - {id: HOTWELL_LO,    signal: hotwell_level, op: lt, setpoint: -0.5, delay: 5.0,
      latching: false, actions: [alarm], label: ["HOTWELL LVL", "LOW"]}
   - {id: HOTWELL_HI,    signal: hotwell_level, op: gt, setpoint: 0.5, delay: 5.0,

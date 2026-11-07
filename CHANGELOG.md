@@ -49,7 +49,38 @@
 - `scripts/level_mode_ringdown.py`: ring-down / damping estimate of the slow
   drum-level mode under three-element control.
 
-### Added (M5 — hidden physical faults; hash-neutral, active only when events fire)
+### Added (M5b — hotwell makeup system + tube_leak; STATE-hash-neutral, observation contract grows)
+
+- **Makeup system:** CST (atmospheric, 30 °C, unlimited) → makeup valve
+  (direct command, no lag) → condenser, by vacuum drag-in
+  (Δp = p_atm + ρ g z_cst − p_cond). Cv is derived so the valve passes
+  `makeup.capacity_design` (10 kg/s) wide open at design condenser pressure.
+  Makeup-only, no reject path.
+- **Hotwell level loop** `hotwell_level` (setpoint −0.15 m, kp 13, ki 0.044,
+  auto/manual) → makeup valve. It stays exactly closed in normal operation.
+- **PI anti-windup option** `anti_windup: backcalc|conditional` (default
+  `backcalc`, unchanged for every existing loop); the hotwell loop uses
+  `conditional`. With back-calculation the integrator absorbed −kp·e while
+  the valve sat closed during a CP outage and kicked it open with the level
+  above setpoint (found by gate G1). The loop also starts with I = 0 rather
+  than a bumpless `initialize`.
+- **CP suction protection:** instruments `cp1_npsh_margin`, `cp2_npsh_margin`
+  and conditions `CP1_SUCTION` / `CP2_SUCTION` (< 0.25 m for 5 s, latching,
+  trip_pump). Protection table: 22 conditions.
+- **`tube_leak {m_dot_design, ramp_s}`:** saturated liquid from the drum water
+  space, m·√(p/p_design). It enters only the global mass/energy balances of
+  both drum models.
+- **Audit:** leak and makeup boundary terms (trapezoid-integrated); condenser
+  duty net of makeup heating; `AuditReport.mass_leak_integrated`,
+  `mass_makeup_integrated`.
+- **Contracts:** `OBSERVATION_SPEC` +4 appended (`makeup_flow`,
+  `makeup_valve_pos`, `cp1_npsh_margin`, `cp2_npsh_margin`); stream IDs
+  1022–1025; actions `loop.hotwell_level.mode`, `makeup_valve.manual_cmd`;
+  `TRUTH_SIGNALS` += `m_leak`; `makeup_valve` is a target of `actuator_stuck`
+  and `valve_degrade`. `Commands.mu_x`; `Aux.m_makeup/h_makeup/m_leak/h_leak`.
+- Observation goldens re-pinned; **all six state goldens unchanged** (G1).
+
+; hash-neutral, active only when events fire)
 
 - New scenario events (module `hotwell.faults`, factors in `Discrete`, frozen
   during RK4, optional `ramp_s` with an exact endpoint):

@@ -50,6 +50,7 @@ SWEEP: list[tuple[str, dict, str, list[float]]] = [
     ("actuator_slow", {"target": "fw_valve"}, "rate_factor", [0.5, 0.2, 0.05]),
     ("actuator_slow", {"target": "throttle"}, "rate_factor", [0.5, 0.2, 0.05]),
     ("actuator_slow", {"target": "firing"}, "rate_factor", [0.5, 0.2, 0.05]),
+    ("tube_leak", {}, "m_dot_design", [0.1, 0.3, 1.0, 3.0]),          # M5b G7
 ]
 STUCK = ["fw_valve", "throttle", "firing", "da_lcv"]
 

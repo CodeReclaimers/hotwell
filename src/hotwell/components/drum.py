@@ -38,11 +38,14 @@ class DrumBoiler(ABC):
 
     @abstractmethod
     def derivatives(self, y: np.ndarray, ydot: np.ndarray, out: DrumOutputs,
-                    q_fire: float, m_fw: float, h_fw: float, m_s: float) -> None:
+                    q_fire: float, m_fw: float, h_fw: float, m_s: float,
+                    m_leak: float = 0.0, h_leak: float = 0.0) -> None:
         """Write d/dt of this model's states into ydot.
 
         q_fire [W] effective heat to fluid; m_fw [kg/s] feed flow; h_fw [J/kg]
-        feed enthalpy; m_s [kg/s] total steam drawn (turbine + auxiliary + relief).
+        feed enthalpy; m_s [kg/s] total steam drawn (turbine + auxiliary + relief);
+        m_leak [kg/s] saturated liquid lost from the water space at h_leak [J/kg]
+        (0.4.0 M5b tube_leak).
         """
 
     @abstractmethod
@@ -155,9 +158,12 @@ class TwoStateDrum(DrumBoiler):
         return DrumOutputs(p=p, level=level, h_steam=sp.h_g(p))
 
     def derivatives(self, y: list[float], ydot: list[float], out: DrumOutputs,
-                    q_fire: float, m_fw: float, h_fw: float, m_s: float) -> None:
-        ydot[self.i_m] = m_fw - m_s
-        ydot[self.i_u] = q_fire + m_fw * h_fw - m_s * out.h_steam
+                    q_fire: float, m_fw: float, h_fw: float, m_s: float,
+                    m_leak: float = 0.0, h_leak: float = 0.0) -> None:
+        """0.4.0 M5b: m_leak [kg/s] of saturated liquid at h_leak leaves the
+        water space (tube_leak)."""
+        ydot[self.i_m] = m_fw - m_s - m_leak
+        ydot[self.i_u] = q_fire + m_fw * h_fw - m_s * out.h_steam - m_leak * h_leak
 
     def mass(self, y: list[float]) -> float:
         return y[self.i_m]
@@ -330,8 +336,12 @@ class AstromBellDrum(DrumBoiler):
         return DrumOutputs(p=p, level=level, h_steam=sp.h_g(p))
 
     def derivatives(self, y: list[float], ydot: list[float], out: DrumOutputs,
-                    q_fire: float, m_fw: float, h_fw: float, m_s: float) -> None:
-        """Eq. (24) of the paper, solved sequentially (lower triangular)."""
+                    q_fire: float, m_fw: float, h_fw: float, m_s: float,
+                    m_leak: float = 0.0, h_leak: float = 0.0) -> None:
+        """Eq. (24) of the paper, solved sequentially (lower triangular).
+        0.4.0 M5b: a water-space liquid leak enters only the GLOBAL mass (r1) and
+        energy (r2) balances; the riser (r3) and sub-surface steam (r4) rows are
+        unchanged (valid for a drum/downcomer water-space leak, not a riser leak)."""
         p = y[self.i_p]
         vwt = y[self.i_vwt]
         ar = y[self.i_ar]
@@ -362,8 +372,8 @@ class AstromBellDrum(DrumBoiler):
         e43 = ar * (1.0 + self.p.beta) * (rs - rw) * self.vr * dav_dar
         e44 = rs
 
-        r1 = m_fw - m_s
-        r2 = q_fire + m_fw * h_fw - m_s * hs
+        r1 = m_fw - m_s - m_leak
+        r2 = q_fire + m_fw * h_fw - m_s * hs - m_leak * h_leak
         r3 = q_fire - ar * hc * qdc
         r4 = rs / self.p.t_d * (self.vsd0 - vsd) + (h_fw - hw) / hc * m_fw
 

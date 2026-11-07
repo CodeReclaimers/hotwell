@@ -13,7 +13,8 @@ import numpy as np
 #: Historian signals that are plant TRUTH, not anything an operator's
 #: instruments report (0.4.0, plan invariant I5). An exporter building a
 #: dataset of "what the operator saw" must drop these mechanically.
-TRUTH_SIGNALS: frozenset[str] = frozenset({"m_peg", "m_relief", "q_fire", "p_mech"})
+TRUTH_SIGNALS: frozenset[str] = frozenset(
+    {"m_peg", "m_relief", "q_fire", "p_mech", "m_leak"})  # m_leak: 0.4.0 M5b
 
 #: Historian signals derived from discrete state that the board shows
 #: truthfully (lamps, breaker, MFT/turbine-trip, annunciator count). Note two

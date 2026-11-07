@@ -34,7 +34,7 @@ from hotwell.components.pumps import (
     solve_path_flow,
 )
 from hotwell.components.turbine import RotorParams, Turbine, TurbineParams
-from hotwell.components.valves import Actuator, ActuatorParams
+from hotwell.components.valves import Actuator, ActuatorParams, valve_flow
 from hotwell.control.loops import Commands
 from hotwell.state import StateRegistry
 
@@ -61,12 +61,14 @@ class Discrete:
     # 0.4.0 M5 hidden physical faults (hotwell.faults); 1.0 = healthy.
     head_factor: dict[str, float] = field(
         default_factory=lambda: {"cp1": 1.0, "cp2": 1.0, "fp1": 1.0, "fp2": 1.0})
-    cv_factor: dict[str, float] = field(default_factory=lambda: {"frv": 1.0, "lcv": 1.0})
+    cv_factor: dict[str, float] = field(
+        default_factory=lambda: {"frv": 1.0, "lcv": 1.0, "makeup_valve": 1.0})
     rate_factor: dict[str, float] = field(
         default_factory=lambda: {"fw_valve": 1.0, "throttle": 1.0, "firing": 1.0})
-    stuck: dict[str, float] = field(default_factory=dict)  # actuator -> held value (da_lcv)
+    stuck: dict[str, float] = field(default_factory=dict)  # actuator -> held cmd (direct valves)
     eta_factor: float = 1.0
     fouling_factor: float = 1.0
+    leak_design: float = 0.0  # 0.4.0 M5b tube_leak [kg/s] at design drum pressure
 
 
 @dataclass(frozen=True)
@@ -87,12 +89,17 @@ class Aux:
     p_elec: float          # [W] incl. station service
     p_station_service: float  # [W] running pump motor draw (part of p_elec)
     p_cond: float          # [Pa]
-    q_cond_duty: float     # [W]
+    q_cond_duty: float     # [W] (net of makeup heating, 0.4.0 M5b)
     p_damping: float       # [W] mechanical damping loss
     hw_level_rel: float    # [m]
     da_level_rel: float    # [m]
     cond_flow: PathFlowResult
     feed_flow: PathFlowResult
+    # 0.4.0 M5b boundary flows (defaults keep any external Aux construction valid)
+    m_makeup: float = 0.0  # [kg/s] CST -> condenser
+    h_makeup: float = 0.0  # [J/kg]
+    m_leak: float = 0.0    # [kg/s] drum water-space tube leak (leaves the cycle)
+    h_leak: float = 0.0    # [J/kg]
 
 
 def load_config(path: str | Path | None = None) -> dict:
@@ -188,6 +195,18 @@ class Plant:
         tp = self.turbine.tp
         self.turbine.set_design(p_d, self.condenser.p_cond(tp.k_t * tp.x_rated * p_d, 0.0))
 
+        # 0.4.0 M5b makeup: CST water properties, vacuum drag-in, Cv DERIVED so the
+        # valve passes capacity_design wide open at the design condenser pressure.
+        mu = cfg["makeup"]
+        self.mu_p_atm = mu["p_atm"]                    # [Pa]
+        self.mu_h = sp.hf_t(mu["t_cst"])               # [J/kg]
+        self.mu_rho = sp.rho_f_t(mu["t_cst"])          # [kg/m3]
+        self.mu_head = self.mu_rho * G * mu["z_cst"]   # [Pa]
+        p_c_design = self.condenser.p_cond(tp.k_t * tp.x_rated * p_d, 0.0)
+        self.cv_mu = mu["capacity_design"] / (
+            self.mu_p_atm + self.mu_head - p_c_design) ** 0.5  # [kg/(s*Pa^0.5)]
+        self.p_design = p_d
+
         # design-point flows (used by steady init and the AB drum's V_sd0)
         if isinstance(self.drum, AstromBellDrum):
             p0, _, _, m_fw_r, q_fire_r = self.design_point()
@@ -262,9 +281,19 @@ class Plant:
         m_fw = res_f.m_dot
 
         m_relief = self.c_sv * p_drum if disc.safety_open else 0.0
+        # 0.4.0 M5b: makeup (direct-command valve, vacuum drag-in) and tube leak.
+        m_mu = 0.0
+        if cmds.mu_x > 0.0:
+            m_mu = valve_flow(self.cv_mu * disc.cv_factor["makeup_valve"], cmds.mu_x,
+                              self.mu_p_atm + self.mu_head - p_cond)
+        m_leak = h_leak = 0.0
+        if disc.leak_design > 0.0:
+            m_leak = disc.leak_design * (max(p_drum, 0.0) / self.p_design) ** 0.5
+            h_leak = sp.h_f(p_drum)
         q_fire = yl[self.firing.i_x] * (self.eta_comb * disc.eta_factor) * self.q_fuel_max
         m_s_total = m_thr + m_peg + m_relief
-        self.drum.derivatives(yl, ydot, drum_out, q_fire, m_fw, da.h_fw, m_s_total)
+        self.drum.derivatives(yl, ydot, drum_out, q_fire, m_fw, da.h_fw, m_s_total,
+                              m_leak, h_leak)
 
         omega = yl[self.turbine.i_omega]
         omega0 = self.turbine.rp.omega0
@@ -281,7 +310,7 @@ class Plant:
                                 disc.breaker_closed, p_ss)
         w_t = self.turbine.specific_work(p_drum, p_cond)
         self.turbine.deriv(yl, ydot, x_thr, p_drum, p_e, w_t)
-        self.condenser.deriv(yl, ydot, m_exh, m_cond)
+        self.condenser.deriv(yl, ydot, m_exh, m_cond, m_mu)
         da.deriv(yl, ydot, m_cond, m_peg, m_fw)
 
         for name in PUMP_NAMES:
@@ -298,11 +327,12 @@ class Plant:
             m_peg=m_peg, m_cond=m_cond, m_fw=m_fw, q_fire=q_fire,
             p_mech=self.turbine.p_mech(yl, w_t), p_elec=p_e,
             p_station_service=p_ss, p_cond=p_cond,
-            q_cond_duty=self.condenser.q_cond(m_exh, h_exh, p_cond),
+            q_cond_duty=self.condenser.q_cond(m_exh, h_exh, p_cond, m_mu, self.mu_h),
             p_damping=self.turbine.rp.d_m * (omega - omega0) * omega,
             hw_level_rel=hw_abs - self.condenser.p.hw_level_nominal,
             da_level_rel=da_abs - da.p.level_nominal,
             cond_flow=res_c, feed_flow=res_f,
+            m_makeup=m_mu, h_makeup=self.mu_h, m_leak=m_leak, h_leak=h_leak,
         )
         return np.asarray(ydot), aux
 
@@ -372,4 +402,7 @@ class Plant:
             "da_lcv_pos": 0.0,  # overwritten by simulator (command, not a state)
             "fp1_npsh_margin": rf.margin[0],
             "fp2_npsh_margin": rf.margin[1],
+            "makeup_flow": aux.m_makeup,
+            "cp1_npsh_margin": aux.cond_flow.margin[0],
+            "cp2_npsh_margin": aux.cond_flow.margin[1],
         }

@@ -10,8 +10,11 @@ fault is bit-identical to no fault.
 
 Events (params; effect):
   pump_degrade       target cp1|cp2|fp1|fp2, head_factor > 0; shutoff head H0*f
-  valve_degrade      target frv|lcv, cv_factor > 0; valve Cv*f (plug < 1, erosion > 1)
-  actuator_stuck     target fw_valve|throttle|firing|da_lcv, optional t_end; frozen
+  valve_degrade      target frv|lcv|makeup_valve, cv_factor > 0; valve Cv*f
+  actuator_stuck     target fw_valve|throttle|firing|da_lcv|makeup_valve, optional
+                     t_end; frozen
+  tube_leak          m_dot_design >= 0 [kg/s at design drum pressure] (0.4.0 M5b);
+                     saturated liquid lost from the drum water space
   actuator_slow      target fw_valve|throttle|firing, rate_factor > 0; slew limit * f
   firing_degrade     eta_factor > 0; combustion efficiency * f
   condenser_fouling  slope_factor > 0; load-dependent p_cond term * f
@@ -20,8 +23,8 @@ All factor faults take optional ramp_s.
 A stuck actuator's position stays where it was; the controller's output keeps
 moving (in `Simulator.control`, i.e. the panel's loop readout), and that
 divergence is the operator's clue. The position instrument is truthful. The
-DA level-control valve has no actuator state (its position IS the
-controller command), so "stuck da_lcv" holds the command value instead.
+DA level-control valve and the makeup valve have no actuator state (their
+position IS the controller command), so sticking them holds the command value.
 Trip slams (MFT on firing, turbine trip on throttle) still act; they model the
 separate trip valves (D12).
 """
@@ -32,12 +35,15 @@ from dataclasses import dataclass
 #: event type -> (Discrete attribute, allowed targets or None, factor param name)
 FACTOR_FAULTS: dict[str, tuple[str, tuple[str, ...] | None, str]] = {
     "pump_degrade": ("head_factor", ("cp1", "cp2", "fp1", "fp2"), "head_factor"),
-    "valve_degrade": ("cv_factor", ("frv", "lcv"), "cv_factor"),
+    "valve_degrade": ("cv_factor", ("frv", "lcv", "makeup_valve"), "cv_factor"),
     "actuator_slow": ("rate_factor", ("fw_valve", "throttle", "firing"), "rate_factor"),
     "firing_degrade": ("eta_factor", None, "eta_factor"),
     "condenser_fouling": ("fouling_factor", None, "slope_factor"),
+    "tube_leak": ("leak_design", None, "m_dot_design"),     # 0.4.0 M5b; >= 0 allowed
 }
-STUCK_TARGETS = ("fw_valve", "throttle", "firing", "da_lcv")
+STUCK_TARGETS = ("fw_valve", "throttle", "firing", "da_lcv", "makeup_valve")
+#: direct-command valves: sticking holds the command (no position state)
+DIRECT_VALVES = ("da_lcv", "makeup_valve")
 PLANT_FAULT_TYPES = frozenset(FACTOR_FAULTS) | {"actuator_stuck"}
 
 
@@ -54,7 +60,10 @@ def check_plant_fault(scenario: str, etype: str, p: dict) -> None:
         raise ValueError(f"{where}: target must be one of {targets}, got {p.get('target')!r}")
     if pname not in p:
         raise ValueError(f"{where}: missing {pname!r}")
-    if not float(p[pname]) > 0.0:
+    if etype == "tube_leak":
+        if not float(p[pname]) >= 0.0:
+            raise ValueError(f"{where}: {pname} must be >= 0, got {p[pname]}")
+    elif not float(p[pname]) > 0.0:
         raise ValueError(f"{where}: {pname} must be > 0, got {p[pname]}")
     if float(p.get("ramp_s", 0.0)) < 0.0:
         raise ValueError(f"{where}: ramp_s must be >= 0")
@@ -89,12 +98,12 @@ class FaultDriver:
         else:
             getattr(self.disc, attr)[key] = value
 
-    def apply(self, etype: str, p: dict, t: float, lcv_cmd: float) -> None:
-        """Apply one event at step-start time t. `lcv_cmd` is the current DA
-        LCV command (held if da_lcv sticks)."""
+    def apply(self, etype: str, p: dict, t: float, held: dict[str, float]) -> None:
+        """Apply one event at step-start time t. `held` maps each direct-command
+        valve to its current command (held if that valve sticks)."""
         if etype == "actuator_stuck":
             tgt = p["target"]
-            self.disc.stuck[tgt] = lcv_cmd if tgt == "da_lcv" else 0.0
+            self.disc.stuck[tgt] = held[tgt] if tgt in DIRECT_VALVES else 0.0
             if "t_end" in p:
                 self._unstick[tgt] = float(p["t_end"])
             return

@@ -52,11 +52,18 @@ class Condenser:
         return rho * self.p.a_hotwell * self.p.hw_level_nominal
 
     def deriv(self, y: list[float], ydot: list[float],
-              m_exhaust: float, m_out: float) -> None:
-        ydot[self.i_m] = m_exhaust - m_out
+              m_exhaust: float, m_out: float, m_makeup: float = 0.0) -> None:
+        ydot[self.i_m] = m_exhaust + m_makeup - m_out
 
     @staticmethod
-    def q_cond(m_exhaust: float, h_exhaust: float, p_cond: float) -> float:
-        """Condenser heat duty [W] for the energy audit."""
+    def q_cond(m_exhaust: float, h_exhaust: float, p_cond: float,
+               m_makeup: float = 0.0, h_makeup: float = 0.0) -> float:
+        """Condenser heat duty [W] for the energy audit. 0.4.0 M5b: makeup is
+        sprayed into the condenser and heated to Tsat(p_cond) by condensing
+        steam, so the duty to cooling water falls by m_mu (h_c - h_mu)."""
         t_c = sp.tsat_lowp(p_cond)
-        return m_exhaust * (h_exhaust - sp.hf_t(t_c))
+        h_c = sp.hf_t(t_c)
+        q = m_exhaust * (h_exhaust - h_c)
+        if m_makeup != 0.0:
+            q -= m_makeup * (h_c - h_makeup)
+        return q

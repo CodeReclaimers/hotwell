@@ -230,16 +230,134 @@ magnitude must be hash-identical to no fault (test).
   within 1 h at the default noise (a rough sweep; the bench repo does the rigorous
   labelling).
 
-### M5b — simple hotwell makeup system (PHYSICS for the hotwell boundary; Q5)
+### M5b — simple hotwell makeup system + `tube_leak` (SPEC APPROVED 2026-11-07: M5b-Q1 makeup-only, Q2 per-pump CP NPSH trips, Q3 setpoint −0.15 m, Q4 water-space leak, Q5 direct-command valve)
 
-Added on Alan's decision (2026-11-07, Q5). Detailed spec is written and reviewed
-before M5b starts. Outline: a makeup valve from a fixed-pressure condensate storage
-tank into the hotwell, a hotwell-level PI loop on it (auto/manual, joins
-`ACTION_SCHEMA`), a `makeup_flow` instrument (joins `OBSERVATION_SPEC`, which needs a
-`sensor.makeup_flow` stream ID), a `CP_SUCTION` protection entry (the phase-1 rough
-edge), and the mass/energy audit terms for the makeup boundary. The `tube_leak` fault
-in M5 depends on this, so either M5b goes before M5's leak test, or the leak lands
-with M5b.
+**Why.** The cycle is closed and nothing controls the hotwell level, so any
+mass leaving the cycle (a tube leak) drains the hotwell into condensate-pump
+(CP) cavitation, and no protection entry covers CP suction (a phase-1 rough
+edge). M5b adds the minimal makeup loop a real plant has, the missing CP
+protection, and the deferred `tube_leak` fault. It gives a leak its textbook
+signature: hotwell level trends down, then makeup flow takes over.
+
+**Physics change? Designed to be state-hash-neutral for the canonical
+scenarios** (gate G1). The makeup valve is a direct command with no actuator
+state (like the DA LCV), so the ODE state vector is unchanged. Its setpoint
+sits below normal hotwell wander, so in no-leak operation the valve is
+exactly closed and every new term is `+ 0.0`. The observation contract grows
+(4 instruments), so the observation goldens are re-pinned.
+
+#### Components (numbers are proposals; regenerate from code once built)
+
+- **Condensate storage tank (CST):** atmospheric (101.325 kPa), infinite
+  inventory, makeup water at fixed 30 °C (h = `hf_t(303.15 K)` ≈ 125.8 kJ/kg,
+  at the edge of the low-T fit's range). Inlet `z_cst` = 5 m above the hotwell
+  inlet. Not modelled: CST level/inventory (makeup is unlimited).
+- **Makeup valve** into the condenser (sprayed in, so the condensing steam heats
+  it to Tsat(p_cond); real practice, and it keeps D8's fixed-temperature hotwell
+  valid): `m_mu = Cv_mu · x_mu · sqrt(max(Δp, 0))`,
+  `Δp = p_atm + ρ_mu g z_cst − p_cond` ≈ 143 kPa at 7 kPa. `Cv_mu` sized for
+  ~10 kg/s wide open (≈ 0.0265 kg/(s·Pa^0.5)), covering leaks to several kg/s
+  with margin. Vacuum drag-in means makeup capacity falls slightly as condenser
+  pressure rises (a real coupling with air ingress and fouling). Direct command,
+  no lag, no rate limit (M5b-Q5).
+- **Hotwell level loop** `hotwell_level` (PI, on sensed level → makeup valve
+  0…1, auto/manual): setpoint **−0.15 m** (M5b-Q3), below the measured no-leak
+  wander (two_state ±14 mm, AB −21…+244 mm in the quiet days), so it never acts
+  without a loss and can't ratchet inventory upward over load cycles.
+  Tuning from the integrator plant (makeup 10 kg/s per unit, hotwell
+  ρA ≈ 7.9 t/m → 1.26e-3 m/s per unit): kp ≈ 13 /m, Ti ≈ 300 s (ki ≈ 0.044),
+  ~60 s closed loop, no inverse response here. Initialised bumpless at output
+  0 (closed).
+- **Makeup-only** (M5b-Q1): no reject/dump valve. A reject path off the CP
+  discharge would need a parallel branch in the condensate path solve.
+- **CP suction protection** (M5b-Q2): instruments `cp1_npsh_margin`,
+  `cp2_npsh_margin` (m, −5…15, 0.05 resolution, mirroring FP), and conditions
+  `CP1_SUCTION` / `CP2_SUCTION`: margin < **0.25 m** for 5 s, latching,
+  `trip_pump`. CP margin is 1.00 m at rated and moves 1:1 with hotwell level,
+  so the trip sits near hotwell −0.75 m, after `HOTWELL_LO` (−0.5 m, 5 s).
+
+#### `tube_leak` fault
+
+- Event `tube_leak {m_dot_design [kg/s], optional ramp_s}`;
+  `m_leak = m_dot_design · sqrt(max(p_drum, 0) / p_design)` (orifice law;
+  two-phase flashing not modelled), **saturated liquid from the drum water
+  space** (M5b-Q4) at `h_f(p_drum)` (two_state) / `h_w` (AB). It leaves the cycle
+  (into the furnace, up the stack; its effect on combustion is not modelled).
+- Drum models: global mass row −= m_leak; global energy row −= m_leak·h_f.
+  AB: rows r1 and r2 only. The riser (r3) and sub-surface steam (r4) rows are
+  unchanged, which is valid for a water-space leak and **not** for a riser leak.
+- Steady-state signature at constant load: sensed feed − steam − pegging =
+  m_leak (pegging isn't instrumented; an observer has to compute it from
+  condensate flow and the DA/drum enthalpies). Firing rises
+  (the leak takes m_leak·(h_f − h_fw) out of the boiler). Hotwell trends down
+  at −m_leak/7.9 t/m (0.3 kg/s → −0.14 m/h), reaches −0.15 m, and then
+  `makeup_flow` ≈ m_leak.
+
+#### Audit (I3)
+
+- Mass: `drift = (M + relief + ∫leak − ∫makeup − M0)/M0`.
+- Energy: condenser duty becomes `m_exh(h_exh − h_c) − m_mu(h_c − h_mu)`
+  (the condensing steam heats the makeup); the residual adds
+  `+ m_mu·h_mu − m_leak·h_leak`.
+- `Aux` gains `m_leak`, `m_makeup`. `TRUTH_SIGNALS` gains `m_leak`; makeup is
+  observed through its instrument.
+
+#### Contract changes
+
+- `OBSERVATION_SPEC` +4: `makeup_flow` (kg/s, 0…20, 0.1), `makeup_valve_pos`
+  (0…1, 0.005), `cp1_npsh_margin`, `cp2_npsh_margin`. Appended (existing order
+  unchanged). Stream IDs `sensor.*` 1022–1025 appended (the M1 coverage test
+  fails until they are added, by design).
+- `ACTION_SCHEMA` +2: `loop.hotwell_level.mode`, `makeup_valve.manual_cmd`.
+- Protection table 20 → 22 conditions. M5 faults extended: `actuator_stuck`
+  and `valve_degrade` accept `makeup_valve` (stuck-closed makeup + leak is the
+  compound casualty).
+- Panel (later migration): +4 gauges, +2 annunciator windows (22), a mimic
+  symbol for the makeup valve with a CST terminal.
+
+#### Gates
+
+- **G1** State goldens unchanged for all six canonical runs (makeup never opens,
+  CP_SUCTION never fires). If any changes, stop and report: the scenario
+  exercised the new loop, which is a physics change for that scenario.
+  Observation goldens re-pinned (spec grew), independently regenerated.
+- **G2** Leak steady state (1 kg/s, both fidelities, settled): makeup flow =
+  leak ± 1 %; hotwell −0.15 m ± 5 mm; sensed feed − steam − truth pegging = leak
+  ± 0.1 kg/s; mass drift < 1e-6 including boundary terms; energy residual
+  < 1e-3 of firing.
+- **G3** Stuck-closed makeup + 1 kg/s leak: HOTWELL_LO, then CP1_SUCTION trip
+  (first-out = the CP trip), then the CP-loss cascade. Time to the trip within
+  10 % of the inventory prediction (0.75 m × 7.9 t/m ÷ 1 kg/s ≈ 99 min after
+  the leak starts, minus the transient), with a diagnostic print of predicted
+  vs measured.
+- **G4** Makeup capacity at full open = 10 kg/s ± 2 % at design Δp; capacity
+  falls with condenser pressure in the direction and amount the √Δp law
+  predicts.
+- **G5** Zero-magnitude `tube_leak` bit-identical; malformed events fail at load.
+- **G6** Both quiet days: makeup flow stays exactly 0 and alarms stay at 0
+  (no ratchet).
+- **G7** Detectability sweep extended: `tube_leak` at 0.1/0.3/1/3 kg/s and
+  stuck makeup valve.
+
+#### Open questions for review (recommendations first)
+
+- **M5b-Q1 Makeup-only vs split-range makeup + reject.** *Recommend makeup-only*
+  ("simple"). A reject valve needs a parallel branch at the CP discharge in the
+  path solve, and no-leak operation doesn't need it once the setpoint sits
+  below normal wander.
+- **M5b-Q2 CP protection: per-pump NPSH margin instruments + trips at 0.25 m
+  (recommended; mirrors FP exactly, observable, per-pump) vs one
+  `HOTWELL_LOLO` level trip** (no new instruments; it needs a two-target trip
+  action, since `trip_pump` takes a single target today).
+- **M5b-Q3 Hotwell setpoint −0.15 m (recommended) vs nominal 0.** At nominal, the
+  makeup would act on normal low-side wander and, with no reject path,
+  ratchet inventory up over every load cycle.
+- **M5b-Q4 Leak from the drum water space (recommended)** vs a riser (two-phase)
+  leak, which changes the AB riser and steam-volume equations; more realistic,
+  more risk.
+- **M5b-Q5 Makeup valve as a direct command (recommended; keeps the state vector
+  and G1 intact)** vs an actuator with lag, which adds a state, so every state
+  hash changes.
 
 ### M6 — procedures and the background-operator runner (no physics; hash-neutral)
 
@@ -338,7 +456,7 @@ truth-signal list, fault magnitudes and detectability sweep, and quiet-day stati
 ## 3. Out of scope (0.4.0)
 
 The bench repo (generator, onset labelling, packaging, grader, item taxonomy). Faults
-on indications/lamps. Makeup/blowdown (unless Q5 says otherwise). Carryover, DA
+on indications/lamps. Blowdown (makeup is added in M5b per Q5). Carryover, DA
 pressure dynamics, post-trip heat loss, cold startup. Any panel change (the panel
 consumes 0.4.0 in a separate task). Performance work beyond keeping T11 and the
 quiet-day wall time recorded.

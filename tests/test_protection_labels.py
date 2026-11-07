@@ -29,7 +29,7 @@ def write_table(tmp_path, extra=""):
 
 def test_every_shipped_condition_has_a_legend_that_fits_a_window():
     table = load_protection_table()
-    assert len(table.conditions) == 20  # 19 in 0.3.0 + COND_P_HIHI (0.4.0 M2)
+    assert len(table.conditions) == 22  # 19 in 0.3.0 + COND_P_HIHI (M2) + CP1/CP2_SUCTION (M5b)
     for c in table.conditions:
         assert c.label, f"{c.id} has no label"
         assert 1 <= len(c.label) <= LABEL_MAX_LINES

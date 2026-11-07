@@ -21,6 +21,8 @@ PINNED_IDS = {
     "sensor.fw_valve_pos": 1016, "sensor.throttle_pos": 1017,
     "sensor.firing_rate": 1018, "sensor.da_lcv_pos": 1019,
     "sensor.fp1_npsh_margin": 1020, "sensor.fp2_npsh_margin": 1021,
+    "sensor.makeup_flow": 1022, "sensor.makeup_valve_pos": 1023,   # M5b
+    "sensor.cp1_npsh_margin": 1024, "sensor.cp2_npsh_margin": 1025,
     "load.vital": 2000, "load.nonvital": 2001,
     "operator": 3000,
 }

@@ -57,7 +57,7 @@ _MODE_CODE = {MODE_STOPPED: 0.0, MODE_STARTING: 0.5, MODE_RUNNING: 1.0,
 
 def _pi_params(d: dict) -> PIParams:
     return PIParams(kp=d["kp"], ki=d["ki"], lo=d["lo"], hi=d["hi"],
-                    t_track=d["t_track"])
+                    t_track=d["t_track"], anti_windup=d.get("anti_windup", "backcalc"))
 
 
 class Simulator:
@@ -112,6 +112,8 @@ class Simulator:
             three_element=three_element,
             te_trim=_pi_params(te["trim"]) if three_element else None,
             te_flow=_pi_params(te["flow"]) if three_element else None,
+            hw_pi=_pi_params(c["hotwell_level"]),
+            hw_sp=float(c["hotwell_level"]["setpoint"]),
         )
         self.commands = Commands(0.55, 0.85, 0.8, 0.6)
         self.last_obs: Observation | None = None
@@ -177,6 +179,8 @@ class Simulator:
                 self._manual_cmd("drum_pressure", key, value)
         elif key == "da_lcv.manual_cmd":
             self._manual_cmd("da_level", key, value)
+        elif key == "makeup_valve.manual_cmd":
+            self._manual_cmd("hotwell_level", key, value)
         elif key == "alarm.ack":
             if not self.engine.acknowledge(value):
                 self._reject(key, value, f"no active alarm {value!r}")
@@ -264,7 +268,9 @@ class Simulator:
             elif ev.type == "action":
                 self.apply_actions(p["command"])
             elif ev.type in PLANT_FAULT_TYPES:
-                self.fault_driver.apply(ev.type, p, self.t, self.commands.lcv_x)
+                self.fault_driver.apply(ev.type, p, self.t,
+                                        {"da_lcv": self.commands.lcv_x,
+                                         "makeup_valve": self.commands.mu_x})
 
     def _trip_pump(self, pump: str, reason: str) -> None:
         if self.disc.pump_modes[pump] in (MODE_STARTING, MODE_RUNNING):
@@ -346,6 +352,7 @@ class Simulator:
     def _sample(self, aux: Aux, noisy: bool = True) -> dict[str, float]:
         truth = self.plant.truth(self.t, self.y, aux, self.disc)
         truth["da_lcv_pos"] = self.commands.lcv_x
+        truth["makeup_valve_pos"] = self.commands.mu_x
         return self.sensors.sample(self.t, truth, noisy=noisy)
 
     def _indications(self) -> dict[str, bool | str]:
@@ -363,7 +370,7 @@ class Simulator:
         return d
 
     def _historian_signals(self) -> list[str]:
-        extra = ["m_peg", "m_relief", "q_fire", "p_mech", "mft", "turbine_trip",
+        extra = ["m_peg", "m_relief", "q_fire", "p_mech", "m_leak", "mft", "turbine_trip",
                  "safety_open", "nonvital_connected", "breaker_closed",
                  "plant_dead", "alarm_count"]
         extra += [f"{n}_mode" for n in PUMP_NAMES]
@@ -376,7 +383,7 @@ class Simulator:
         disc = self.disc
         row.update({
             "m_peg": aux.m_peg, "m_relief": aux.m_relief,
-            "q_fire": aux.q_fire, "p_mech": aux.p_mech,
+            "q_fire": aux.q_fire, "p_mech": aux.p_mech, "m_leak": aux.m_leak,
             "mft": float(disc.mft), "turbine_trip": float(disc.turbine_trip),
             "safety_open": float(disc.safety_open),
             "nonvital_connected": float(disc.nonvital_connected),
@@ -407,6 +414,8 @@ class Simulator:
             cmds = replace(cmds, throttle_cmd=0.0)
         if "da_lcv" in self.disc.stuck:   # 0.4.0 M5: the LCV holds; its PI keeps moving
             cmds = replace(cmds, lcv_x=self.disc.stuck["da_lcv"])
+        if "makeup_valve" in self.disc.stuck:   # 0.4.0 M5b, same rule
+            cmds = replace(cmds, mu_x=self.disc.stuck["makeup_valve"])
         self.commands = cmds
         # 3. integrate
         y_new, aux = self._rk4()
@@ -424,7 +433,7 @@ class Simulator:
                           plant_dead=self.disc.plant_dead)
         # 6. historian + audit + trajectory hash
         self._record(aux, sensed)
-        self.audit_acc.accumulate(aux.m_relief, self.dt)
+        self.audit_acc.accumulate(aux.m_relief, self.dt, aux.m_leak, aux.m_makeup)
         self._hash.update(self.y.tobytes())
         self._obs_hash.update(observation_bytes(obs))
         self.last_obs = obs
@@ -620,6 +629,11 @@ class Simulator:
             self.control.fw_flow.initialize(cmds.fw_cmd, aux.m_fw)
         self.control.drum_pressure.initialize(cmds.firing_cmd, aux.p_drum)
         self.control.da_level.initialize(lcv_x, aux.da_level_rel)
+        # Makeup closed with I = 0, NOT initialize(0, pv): that would set
+        # I = +kp*0.15 and move the opening point from -0.15 m up to the
+        # current level (M5b gate G1 diagnosis).
+        hw = self.control.hotwell_level
+        hw.integ, hw.output, hw.manual_cmd = 0.0, 0.0, 0.0
 
         # Noise-free and draw-free: the controllers were just initialised
         # bumpless at these values, and the I2 draw count is per step().
@@ -645,4 +659,5 @@ class Simulator:
         assert aux is not None
         return self.audit_acc.report(
             self.t, self.plant.total_water_mass(self.y, aux),
-            aux.q_fire, aux.p_elec, aux.q_cond_duty, aux.p_damping)
+            aux.q_fire, aux.p_elec, aux.q_cond_duty, aux.p_damping,
+            e_in=aux.m_makeup * aux.h_makeup, e_out=aux.m_leak * aux.h_leak)

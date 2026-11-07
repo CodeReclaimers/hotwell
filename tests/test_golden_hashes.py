@@ -31,6 +31,11 @@ AB + 3E entries RE-PINNED IN M4b (2026-11-07), deliberately: three-element
 level-trim retune kp 15/ki 0.15 -> kp 30/ki 0.075 (the AB slow level mode was
 unstable; HANDOFF 0.4.0 M4b). The two_state + 1E entries are unchanged (that
 loop doesn't use the trim), checked by diffing scripts/golden_hashes.py output.
+
+Observation goldens RE-PINNED IN M5b (2026-11-07): OBSERVATION_SPEC grew by 4
+instruments (makeup_flow, makeup_valve_pos, cp1/cp2_npsh_margin). All six STATE
+goldens and step counts are unchanged: gate G1, the makeup valve stays exactly
+closed in every canonical scenario.
 """
 import pytest
 
@@ -49,27 +54,27 @@ GOLDEN = {
     ("two_state_1e", "cp1_trip_unrecovered"): (
         8550,
         "2f2c4a18fc03617cb06f40ec25d18cc063c88879e8bacae942a68fd858c9b66f",
-        "7daee8b52cf34eb2113da57ef088b746e3b964458bafe72fb6b5bf9290c55ab0"),
+        "f4c4cccdb0288ad6c06a1e0d6cedda598c15cf89c414d98308ddc80ac169bef7"),
     ("two_state_1e", "cp1_trip_recovered"): (
         18000,
         "dcd1b3a5290214940b80fa1ad34aea220d996637d35c4b1b8803b0ff3911439a",
-        "61c3cb8a4bb1f709ec09be32eadfc9e3a4c1f211d7f91f1b665fa1323678e6eb"),
+        "a6c98287cc8056b4c2f5aa906e9548e4fab33efdd8fbb996f678d08f2d097921"),
     ("two_state_1e", "load_step"): (
         18000,
         "ac2199cc8b0b51a603464933c78cff344a18a6ff042c2949161f9d40ff5352d4",
-        "3791d20afc51aa16e2199aba4731243d5833eeffdd95978da873cd35fea5aa26"),
+        "028653f2de48e94ca50f6500ea6706f5096a78bcbf415648d8855b0e40aac12a"),
     ("astrom_bell_3e", "cp1_trip_unrecovered"): (
         10468,
         "4079cb8c94c05e9e39588a6292007db68918c4d0e2013d76703bf55ddc0ec5d9",
-        "4e3fb6111baaba9502b89b30e6f71d3e548f3b4597dd3c356e8b72bd2e67f9ff"),
+        "96dea09f42f7ccaa56b593257c64be7874c7e86e6ce497da5de4d3e11315f3fb"),
     ("astrom_bell_3e", "cp1_trip_recovered"): (
         18000,
         "fc970dbee00475701add99d62730cce6f714918ee8ed5a5bb4e593a6abb43d31",
-        "e579e4700c2b5de282cdbec2acbec4d483733e1251f3f4c961eb5f11fb8e8c9f"),
+        "9a300b5425692c51c3afe597bb9310010b79ffd29bef52007e1db590035821eb"),
     ("astrom_bell_3e", "load_step"): (
         18000,
         "35aae16396f4cf023be94f07029346b35e87466cc977900833b3273b317b31df",
-        "fda00ffc3b85faf5c92b8829830b48793e17bebd157b3f1dc6f3d81eeffc6434"),
+        "d6386717605138b006af1e8780707828de4fd257b82a113972287271d6916dcb"),
 }
 
 

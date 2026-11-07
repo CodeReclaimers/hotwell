@@ -63,13 +63,18 @@ QUIET_DAY_SENSOR_NOISE = {
     "da_lcv_pos": {"sigma": 0.002, "tau": 0.0},
     "fp1_npsh_margin": {"sigma": 0.03, "tau": 0.0},
     "fp2_npsh_margin": {"sigma": 0.03, "tau": 0.0},
+    # 0.4.0 M5b instruments
+    "makeup_flow": {"sigma": 0.05, "tau": 0.0},
+    "makeup_valve_pos": {"sigma": 0.002, "tau": 0.0},
+    "cp1_npsh_margin": {"sigma": 0.03, "tau": 0.0},
+    "cp2_npsh_margin": {"sigma": 0.03, "tau": 0.0},
 }
 QUIET_DAY_LOAD_NOISE = {
     "nonvital": {"sigma_w": 3.0e5, "tau": 120.0},
     "vital": {"sigma_w": 5.0e4, "tau": 300.0},
 }
 WATCH = ("frequency", "drum_level", "drum_pressure", "da_level", "hotwell_level",
-         "cond_pressure", "fp1_npsh_margin", "mw_out")
+         "cond_pressure", "fp1_npsh_margin", "mw_out", "makeup_flow")  # makeup: M5b G6
 
 
 def profile_mw(t_s: float) -> float:
@@ -122,6 +127,7 @@ class QuietDayResult:
     relief_kg: float = 0.0
     state_hash: str = ""
     observation_hash: str = ""
+    makeup_max_cmd: float = 0.0   # M5b G6: max makeup valve command over the day
 
     @property
     def passed(self) -> bool:
@@ -144,8 +150,10 @@ def run_quiet_day(fidelity: str = "two_state_1e", seed: int = 42, until_h: float
     alarm_events = []
     wall0 = time.perf_counter()
     next_report = 0.0
+    mu_max = 0.0
     while sim.t < max_t - 0.5 * sim.dt:
         obs = sim.step()
+        mu_max = max(mu_max, sim.commands.mu_x)
         v = obs.values
         for k in WATCH:
             e = ext[k]
@@ -181,7 +189,8 @@ def run_quiet_day(fidelity: str = "two_state_1e", seed: int = 42, until_h: float
         extrema={k: tuple(e) for k, e in ext.items()},
         mass_drift_frac=rep.mass_drift_frac,
         relief_kg=sim.audit_acc.relief_kg,
-        state_hash=sim.state_history_hash, observation_hash=sim.observation_hash)
+        state_hash=sim.state_history_hash, observation_hash=sim.observation_hash,
+        makeup_max_cmd=mu_max)
 
 
 def print_result(r: QuietDayResult) -> None:
@@ -190,7 +199,8 @@ def print_result(r: QuietDayResult) -> None:
           f"({r.t_end / r.wall_s:.0f}x real time)")
     print(f"trips {r.trips}; first_out {r.first_out}; rejected actions {len(r.rejected)}")
     print(f"mass audit drift {r.mass_drift_frac * 100:+.5f} % (limit 0.1 %); "
-          f"safety-valve relief {r.relief_kg:.1f} kg")
+          f"safety-valve relief {r.relief_kg:.1f} kg; makeup valve max cmd "
+          f"{r.makeup_max_cmd}")
     print("sensed extrema (min @ t_h, max @ t_h):")
     for k, (lo, tlo, hi, thi) in r.extrema.items():
         print(f"  {k:16s} {lo:12.4f} @ {tlo / 3600:5.2f} h   {hi:12.4f} @ {thi / 3600:5.2f} h")

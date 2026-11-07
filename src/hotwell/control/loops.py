@@ -35,6 +35,7 @@ class Commands:
     throttle_cmd: float  # throttle command [-]
     firing_cmd: float   # firing command [-]
     lcv_x: float        # DA level-control valve position [-]
+    mu_x: float = 0.0   # makeup valve position [-] (0.4.0 M5b; direct, no lag)
 
 
 class ControlSystem:
@@ -46,12 +47,15 @@ class ControlSystem:
                  da_pi: PIParams, da_sp: float,
                  three_element: bool = False,
                  te_trim: PIParams | None = None,
-                 te_flow: PIParams | None = None) -> None:
+                 te_flow: PIParams | None = None,
+                 hw_pi: PIParams | None = None, hw_sp: float = 0.0) -> None:
         self.gov = gov
         self.load_ref = 0.0  # operator load reference [W]
         self.drum_level = PI(level_pi, level_sp)
         self.drum_pressure = PI(pressure_pi, pressure_sp)
         self.da_level = PI(da_pi, da_sp)
+        # 0.4.0 M5b hotwell makeup loop; a closed-valve stub when absent
+        self.hotwell_level = PI(hw_pi or PIParams(0.0, 0.0, 0.0, 0.0, 1.0), hw_sp)
         self.governor_manual: float | None = None  # manual throttle cmd, None = auto
         self.three_element = three_element
         if three_element:
@@ -62,7 +66,8 @@ class ControlSystem:
     def loop(self, name: str) -> PI:
         return {"drum_level": self.drum_level,
                 "drum_pressure": self.drum_pressure,
-                "da_level": self.da_level}[name]
+                "da_level": self.da_level,
+                "hotwell_level": self.hotwell_level}[name]
 
     def governor_cmd(self, f_sensed: float) -> float:
         """Droop law -> throttle command [-] from sensed frequency [Hz]."""
@@ -96,4 +101,5 @@ class ControlSystem:
             throttle_cmd=self.governor_cmd(sensed["frequency"]),
             firing_cmd=self.drum_pressure.update(sensed["drum_pressure"], dt),
             lcv_x=self.da_level.update(sensed["da_level"], dt),
+            mu_x=self.hotwell_level.update(sensed["hotwell_level"], dt),
         )

@@ -52,6 +52,11 @@ _IDS: dict[str, int] = {
     "sensor.da_lcv_pos": 1019,
     "sensor.fp1_npsh_margin": 1020,
     "sensor.fp2_npsh_margin": 1021,
+    # 0.4.0 M5b (appended)
+    "sensor.makeup_flow": 1022,
+    "sensor.makeup_valve_pos": 1023,
+    "sensor.cp1_npsh_margin": 1024,
+    "sensor.cp2_npsh_margin": 1025,
     # 2000-series: load process noise (plan M4).
     "load.vital": 2000,
     "load.nonvital": 2001,

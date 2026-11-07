@@ -132,6 +132,15 @@ sensors:
   #     feed_flow:  {sigma: 0.3,   tau: 2.0}
   noise: {}
 
+makeup:
+  # 0.4.0 M5b: condensate storage tank (CST) -> makeup valve -> condenser.
+  # Vacuum drag-in: dp = p_atm + rho*g*z_cst - p_cond. Cv is DERIVED so the
+  # valve passes capacity_design wide open at the design condenser pressure.
+  p_atm: 101325.0         # Pa
+  z_cst: 5.0              # m, CST level above the condenser makeup inlet
+  t_cst: 303.15           # K, makeup water temperature (30 degC)
+  capacity_design: 10.0   # kg/s wide open at design p_cond
+
 safety_valve:
   p_open: 8.6e+6          # Pa
   p_reseat: 8.3e+6        # Pa
@@ -178,6 +187,18 @@ control:
     lo: 0.0
     hi: 1.0
     t_track: 20.0
+  hotwell_level:          # 0.4.0 M5b. PV: sensed hotwell level rel [m]; output: makeup valve
+    # Setpoint below normal no-leak wander (quiet days: two_state +-14 mm, AB
+    # -21..+244 mm), so it acts only on a loss (makeup-only: no reject path,
+    # so a nominal setpoint would ratchet inventory up over load cycles).
+    # Integrator plant ~1.26e-3 (m/s)/unit (10 kg/s / 7.9 t/m): ~60 s loop, Ti 300 s.
+    setpoint: -0.15
+    kp: 13.0
+    ki: 0.044
+    lo: 0.0
+    hi: 1.0
+    t_track: 15.0         # unused with conditional anti-windup
+    anti_windup: conditional  # it normally sits closed; see control/pid.py
   da_level:               # PV: sensed DA level rel [m]; output: LCV position
     kp: 1.5
     ki: 0.025

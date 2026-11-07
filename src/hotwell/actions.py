@@ -49,6 +49,11 @@ ACTION_SCHEMA: tuple[ActionSpec, ...] = tuple(
                    "firing manual command", "drum_pressure loop in manual, no MFT"),
         ActionSpec("da_lcv.manual_cmd", "float", 0.0, 1.0,
                    "DA level control valve manual command", "da_level loop in manual"),
+        # 0.4.0 M5b
+        ActionSpec("loop.hotwell_level.mode", "str", None, None,
+                   "hotwell level (makeup) loop auto|manual", "always"),
+        ActionSpec("makeup_valve.manual_cmd", "float", 0.0, 1.0,
+                   "makeup valve manual command", "hotwell_level loop in manual"),
         ActionSpec("alarm.ack", "str", None, None,
                    "acknowledge an active alarm by id", "alarm active"),
         ActionSpec("trips.reset", "bool", None, None,
