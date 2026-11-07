@@ -12,6 +12,14 @@ library only: no server, no UI, no agent.
 - Contracts for the later phases: observation spec, action schema, scenario files,
   data-driven protection tables (`src/hotwell/data/protection.yaml`).
 
+## Install
+
+hotwell is distributed from GitHub only (not PyPI). Pin a tag:
+
+```bash
+pip install "hotwell @ git+https://github.com/CodeReclaimers/hotwell@v0.3.0"
+```
+
 ## Install (development)
 
 ```bash
@@ -46,3 +54,7 @@ Provenance and accuracy report are embedded in the generated
 
 See `PLAN-sim-core.md` for the full phase-1 specification and `HANDOFF.md` for current
 status, achieved design-point values, and open questions.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

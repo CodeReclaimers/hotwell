@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]  # PEP 639 license expression
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,11 +7,17 @@ name = "hotwell"
 version = "0.3.0"
 description = "Headless reduced-order steam plant simulation core"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Alan McIntyre" }]
 dependencies = [
     "numpy",
     "scipy",
     "pyyaml",
 ]
+
+[project.urls]
+Repository = "https://github.com/CodeReclaimers/hotwell"
 
 [project.optional-dependencies]
 dev = [
