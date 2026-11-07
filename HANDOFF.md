@@ -10,7 +10,10 @@ answered there). Milestone status is in `.plan-checkpoint.md`.
   regenerate with `scripts/golden_hashes.py [SRC]`. Run lengths: two_state
   `cp1_trip_unrecovered` dies at t = 427.30 s (MFT +127.3 s after the trip),
   AB+3E at 522.90 s (+222.9 s); the other four run to max_t = 900 s.
-  New `Simulator.observation_hash` covers what a consumer saw.
+  New `Simulator.observation_hash` covers what a consumer saw: sensed values,
+  indications, and alarm states including acknowledgement (alarms added on
+  Alan's amendment; a test shows an ack changes the observation hash and
+  leaves the state hash alone).
   **The two hashes differ in sensitivity:** a 1e-7 relative kp change moves the
   state hash but not the observation hash (quantization absorbs sub-LSB
   differences in truth). Use the state hash for "physics unchanged" and the

@@ -15,7 +15,8 @@ scenario under both fidelities with Simulator.run(), and prints:
     Observation objects step() returns, using the M0 encoding:
       per step: float64 bytes of values in OBSERVATION_SPEC order, then for
       each indication in sorted-key order: key, b'=', b'1'/b'0' (bool) or
-      the UTF-8 str, b'\\x00'.
+      the UTF-8 str, b'\\x00'; then b'#'; then each alarm (id, state) in the
+      order Observation.alarms gives (table order) as id, b'=', state, b'\\x00'.
 """
 import hashlib
 import sys
@@ -53,6 +54,9 @@ def obs_bytes(obs) -> bytes:
         v = obs.indications[k]
         enc = (b"1" if v else b"0") if isinstance(v, bool) else str(v).encode()
         out += k.encode() + b"=" + enc + b"\x00"
+    out += b"#"
+    for aid, state in obs.alarms:
+        out += f"{aid}={state}".encode() + b"\x00"
     return out
 
 

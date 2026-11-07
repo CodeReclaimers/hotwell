@@ -82,7 +82,10 @@ def observation_bytes(obs: Observation) -> bytes:
     bench repo's dump exporter) can hash what they export the same way.
     Encoding: the sensed values as float64 in `OBSERVATION_SPEC` order, then
     each indication in sorted-key order as ``key=value\\0`` with bools as
-    ``1``/``0`` and strings as UTF-8. Alarms and `plant_dead` are not included.
+    ``1``/``0`` and strings as UTF-8, then the separator ``#``, then each
+    non-clear alarm in the order given (protection-table order) as
+    ``id=state\\0``. That includes the acknowledgement state. `plant_dead` is
+    not included.
     """
     out = np.array([obs.values[s.name] for s in OBSERVATION_SPEC],
                    dtype=np.float64).tobytes()
@@ -91,6 +94,9 @@ def observation_bytes(obs: Observation) -> bytes:
         v = obs.indications[k]
         enc = (b"1" if v else b"0") if isinstance(v, bool) else str(v).encode()
         parts.append(k.encode() + b"=" + enc + b"\x00")
+    parts.append(b"#")
+    for aid, state in obs.alarms:
+        parts.append(aid.encode() + b"=" + state.encode() + b"\x00")
     return b"".join(parts)
 
 

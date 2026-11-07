@@ -89,6 +89,10 @@ unchanged.**
   (values in `OBSERVATION_SPEC` order as float64, then indications). Once sensor noise
   exists, the dump's content is what matters, and the state hash alone doesn't cover it.
   Record it alongside the state hashes. New API only; the existing hash is unchanged.
+  **Amended 2026-11-07 (Alan): the encoding also covers the alarm list**: each non-clear
+  `(id, state)` in table order, so acknowledgement state is included. The observation
+  goldens are re-pinned from pristine `9464eb2` in a separate commit before M2; the
+  state goldens don't change.
 - Gate: suite green; the six state hashes equal hashes computed independently from a
   checkout of `9464eb2` (computed in a scratch worktree, not copied from memory).
 
@@ -144,6 +148,11 @@ in behaviour can be attributed to it.
   this change immediately and its casualty pins go red. See Q3.
 
 ### M3 — sensor noise and new sensor fault kinds (hash-neutral at defaults)
+
+- **I5 lands here** (Alan, 2026-11-07): `historian.TRUTH_SIGNALS`, the historian's
+  truth-side extras, so exporters can exclude them mechanically. A test asserts that
+  every historian signal is either an `OBSERVATION_SPEC` instrument, a truthful
+  indication-derived signal, or in `TRUTH_SIGNALS`.
 
 - Config `sensors.noise.<instrument>: {sigma, tau}` in instrument units. `sigma = 0` is
   off (I1). `tau = 0` means white noise; `tau > 0` means AR(1) colored noise
