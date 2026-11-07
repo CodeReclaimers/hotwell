@@ -1,6 +1,21 @@
 # Changelog
 
-## 0.4.0 — unreleased (branch `release-0.4`, plan `PLAN-0.4-benchmark-core.md`)
+## 0.4.0 — 2026-11-07
+
+**Upgrade notes (read first).**
+
+- **Physics change (M2): every 0.3.0 trajectory, state hash and session log
+  stops reproducing.** Turbine work now depends on drum and condenser
+  pressure, and the new low-vacuum trip `COND_P_HIHI` can fire.
+- **AB drum + three-element runs change again (M4b)**: the level trim is
+  retuned. two_state + single-element runs are unaffected by M4b.
+- **Contract growth:** protection table 19 → 22 conditions (`COND_P_HIHI`,
+  `CP1_SUCTION`, `CP2_SUCTION`); `OBSERVATION_SPEC` 22 → 26 instruments
+  (appended); new loop `hotwell_level` driving a new makeup valve.
+- **Renamed config key:** `turbine.w_spec` → `turbine.w_design`.
+- **numpy is part of the determinism contract** (M1, M3); pin it.
+- Install from the GitHub tag, `git+https://github.com/CodeReclaimers/hotwell@v0.4.0`;
+  hotwell is not on PyPI.
 
 ### Added (M0 — no behaviour change)
 
@@ -28,6 +43,65 @@
   `ValueError`.
 - `Simulator.streams`: the run's `StreamBank`. Nothing draws from it yet.
 
+### Changed (M1 — determinism scope, documentation only)
+
+- `Simulator.rng` is now documented as unused (kept for 0.3.0 compatibility).
+  The phase-1 rule "all randomness from one Generator owned by the simulator"
+  becomes "all randomness from the simulator's StreamBank".
+- Determinism scope stated explicitly: same seed + scenario + platform +
+  **numpy version** (NumPy does not promise stable `Generator` distribution
+  algorithms across releases; `tests/test_rng.py` pins raw and normal draws
+  under numpy 2.5.1 as a loud gate).
+
+### Changed (M2 — **PHYSICS CHANGE: every trajectory shifts; 0.3.0 hashes and session logs no longer reproduce**)
+
+- **Turbine specific work depends on drum and condenser pressure.**
+  `w = eta_t · Δh_s`, the isentropic drop from saturated vapour at `p_drum`
+  to the wet region at `p_cond`; `eta_t` (0.799126) is derived so that `w`
+  equals `turbine.w_design` (780 kJ/kg) at the design state, which keeps the
+  60 MW / 76.923 kg/s / droop anchors exact. Condenser backpressure now
+  costs output: −1.414 %/kPa at rated. `h_exh = h_g − w` keeps the energy
+  audit exact. The throttling loss across the governor valve is not modelled.
+- **Config key renamed** `turbine.w_spec` → `turbine.w_design`.
+  `TurbineParams.w_spec` → `w_design`; `Turbine.p_mech(y)` → `p_mech(y, w)`;
+  `Turbine.deriv` takes `w`.
+- **Protection: `COND_P_HIHI`** (cond_pressure > 18 kPa for 5 s, latching →
+  turbine trip; legend `COND PRESS / HIGH HIGH`). The table has 20 conditions.
+- Canonical cascade shifts ≤ 0.30 s; ordering and first-out unchanged (tables
+  in HANDOFF).
+
+### Added (M2)
+
+- `hotwell.components.turbine.isentropic_drop(p_in, p_cond)`,
+  `Turbine.set_design`, `Turbine.specific_work`, `Turbine.eta_t`.
+- Steam-property fits `s_f(p)`, `s_g(p)` (derived s_g = s_f + h_fg/T),
+  `sf_t(T)`, `hg_t(T)`; the generator gains an oracle-free s_f transcription
+  guard. `scripts/audit_steam_props.py` audits all typed tables and fits
+  against IAPWS-97 (optional `iapws`, not a dependency).
+- `scripts/run_scenario.py --fidelity two_state_1e|astrom_bell_3e`;
+  `scripts/steady_state.py` prints the turbine sensitivities.
+
+### Added (M3 — hash-neutral at defaults)
+
+- **Sensor noise**, config `sensors.noise.<instrument>: {sigma, tau}`
+  (instrument units; `tau = 0` white, `tau > 0` exact AR(1)/OU, started
+  stationary). Empty by default (baseline adds an empty `sensors.noise: {}`).
+- **Sensor fault kinds** `drift` (`rate`, optional `max_bias`), `lag`
+  (`tau_s`, starts at the current truth, no jump), `noise_increase`
+  (`factor`); `stuck` and `bias` unchanged. Pipeline order: truth → lag →
+  bias/drift → noise → stuck → clamp → quantize. At most one fault per
+  instrument.
+- **Draw contract (I2)**: every instrument draws one standard normal from
+  `sensor.<instrument>` on every `step()`, whatever its sigma, fault or the
+  plant state; `SensorBank.last_draws` exposes them. The steady-state init
+  sample is noise-free and draws nothing.
+- `sensor_fault` events are validated at scenario load (target, kind,
+  required params, ranges); `SensorFault` validates itself.
+- `hotwell.historian.TRUTH_SIGNALS` (`m_peg`, `m_relief`, `q_fire`, `p_mech`)
+  and `INDICATION_SIGNALS` (I5); a test fails on any unclassified historian
+  signal.
+- `SensorBank(noise=None, streams=None, dt=0.05)`; `sample(t, truth, noisy=True)`.
+
 ### Added (M4 — hash-neutral at defaults)
 
 - **Load ramps:** `set_load` takes optional `ramp_s`, a linear ramp of the
@@ -49,41 +123,37 @@
 - `scripts/level_mode_ringdown.py`: ring-down / damping estimate of the slow
   drum-level mode under three-element control.
 
-### Added (M7 — plant description and operator manuals; no simulator change)
+### Changed (M4b — control retune; AB + 3E hashes change, two_state + 1E unchanged)
 
-- `docs/manual/` 00–08: index/conventions, plant description, instrumentation,
-  controls, protection, normal procedures (rendered from the procedure YAML),
-  alarm response (one section per window), symptom-based abnormal procedures
-  AOP-01..09, model limitations.
-- `scripts/gen_manual.py [--check]`: regenerates the GENERATED blocks (design
-  point from a live steady-state init, equipment, instruments, actions, loops,
-  protection, procedures, per-window `arp_<ID>` headers).
-- `hotwell.units`: SI → customary affine table, constants copied exactly from
-  hotwell-panel `displayunits.py` (condenser as inHg vacuum; currents in A).
-- `tests/test_manual_sync.py`: blocks current; windows ↔ sections; procedures
-  rendered; every backticked name real (templates resolved); every
-  `<!-- src: path::Symbol -->` resolves; units cover the instruments exactly;
-  no fault-injection event names (answer-key hygiene).
+- **Three-element level trim retuned** `control.drum_level_3e.trim` kp 15 →
+  30, ki 0.15 → 0.075 (integral time 100 → 400 s). The old tuning left the
+  AB drum + 3E with a ~1890 s drum-level mode at negative damping (ζ ≈ −0.02,
+  pre-existing in 0.3.0, found by the M4 quiet day). Reduced model:
+  unstable iff Ti < κ·ρA ≈ 116 s, from the AB drum's sustained inverse gain.
+  New ring-down ζ ≈ 0.44; the AB quiet day goes from 56 alarm activations to 0.
+  AB cascade shifts ≤ 0.30 s. Pegging-steam feedforward was tried and rejected
+  (it doesn't damp the mode).
+- `test_ab_3e_slow_level_mode_is_damped` is no longer an xfail.
+- `scripts/level_mode_ringdown.py` reports the load-step peak, the level at
+  1800 s, a half-cycle ζ estimate and the late/first-peak envelope ratio.
 
+### Added (M5 — hidden physical faults; hash-neutral, active only when events fire)
 
+- New scenario events (module `hotwell.faults`, factors in `Discrete`, frozen
+  during RK4, optional `ramp_s` with an exact endpoint):
+  `pump_degrade` (per pump, H0·f), `valve_degrade` (frv|lcv, Cv·f),
+  `actuator_stuck` (fw_valve|throttle|firing|da_lcv, optional `t_end`;
+  position frozen while the controller output keeps moving), `actuator_slow`
+  (slew limit·f), `firing_degrade` (combustion efficiency·f),
+  `condenser_fouling` (load-dependent condenser term·f, separable from
+  additive air ingress by load dependence). Validated at scenario load. A
+  zero-magnitude fault (f = 1) is bit-identical to no fault.
+- `tube_leak` is deferred to M5b (it needs the makeup system).
+- API: `solve_path_flow(..., head_factors=)`, `Actuator.deriv(..., stuck,
+  rate_factor)`, `Condenser.p_cond(..., fouling_factor)`, `Simulator.fault_driver`.
+- `scripts/fault_detectability.py`: rough oracle-twin detectability sweep.
 
-- `hotwell/data/procedures/*.yaml`: NOP-01 condensate pump swap, NOP-02 feed
-  pump swap (templated `{from}`/`{to}`, either direction), NOP-03 frequency
-  trim, NOP-04 alarm acknowledgement. Conditions are data, never `eval`; every
-  action key is checked with `check_schema` at load. `hotwell.data.builtin_procedures()`.
-- `hotwell.procedures`: `load_procedures`, `validate`, `ProcedureRunner`
-  (one procedure at a time with a FIFO queue; reaction delay fixed, default 5 s,
-  or lognormal from the `operator` stream; reads only the Observation and
-  `Simulator.loop_state()`; shift log; no casualty response).
-- `hotwell.recorder`: `ActionRecorder` logs every scenario event and submitted
-  action per tick and emits a scenario (half-tick-early stamps) that replays
-  bit-identically, including same-tick event/action collisions; `drive()`.
-- `Simulator.loop_state()`: read-only controller state.
-- `scripts/quiet_day.py --operator closed-loop` (now the default): NOP-03 every
-  300 s plus a CP swap at 06:00 and an FP swap at 18:00. `--operator fixed`
-  reproduces the M4 runs.
-
- + tube_leak; STATE-hash-neutral, observation contract grows)
+### Added (M5b — hotwell makeup system + tube_leak; STATE-hash-neutral, observation contract grows)
 
 - **Makeup system:** CST (atmospheric, 30 °C, unlimited) → makeup valve
   (direct command, no lag) → condenser, by vacuum drag-in
@@ -114,94 +184,39 @@
   and `valve_degrade`. `Commands.mu_x`; `Aux.m_makeup/h_makeup/m_leak/h_leak`.
 - Observation goldens re-pinned; **all six state goldens unchanged** (G1).
 
-; hash-neutral, active only when events fire)
+### Added (M6 — procedures and the background operator; hash-neutral)
 
-- New scenario events (module `hotwell.faults`, factors in `Discrete`, frozen
-  during RK4, optional `ramp_s` with an exact endpoint):
-  `pump_degrade` (per pump, H0·f), `valve_degrade` (frv|lcv, Cv·f),
-  `actuator_stuck` (fw_valve|throttle|firing|da_lcv, optional `t_end`;
-  position frozen while the controller output keeps moving), `actuator_slow`
-  (slew limit·f), `firing_degrade` (combustion efficiency·f),
-  `condenser_fouling` (load-dependent condenser term·f, separable from
-  additive air ingress by load dependence). Validated at scenario load. A
-  zero-magnitude fault (f = 1) is bit-identical to no fault.
-- `tube_leak` is deferred to M5b (it needs the makeup system).
-- API: `solve_path_flow(..., head_factors=)`, `Actuator.deriv(..., stuck,
-  rate_factor)`, `Condenser.p_cond(..., fouling_factor)`, `Simulator.fault_driver`.
-- `scripts/fault_detectability.py`: rough oracle-twin detectability sweep.
+- `hotwell/data/procedures/*.yaml`: NOP-01 condensate pump swap, NOP-02 feed
+  pump swap (templated `{from}`/`{to}`, either direction), NOP-03 frequency
+  trim, NOP-04 alarm acknowledgement. Conditions are data, never `eval`; every
+  action key is checked with `check_schema` at load. `hotwell.data.builtin_procedures()`.
+- `hotwell.procedures`: `load_procedures`, `validate`, `ProcedureRunner`
+  (one procedure at a time with a FIFO queue; reaction delay fixed, default 5 s,
+  or lognormal from the `operator` stream; reads only the Observation and
+  `Simulator.loop_state()`; shift log; no casualty response).
+- `hotwell.recorder`: `ActionRecorder` logs every scenario event and submitted
+  action per tick and emits a scenario (half-tick-early stamps) that replays
+  bit-identically, including same-tick event/action collisions; `drive()`.
+- `Simulator.loop_state()`: read-only controller state.
+- `scripts/quiet_day.py --operator closed-loop` (now the default): NOP-03 every
+  300 s plus a CP swap at 06:00 and an FP swap at 18:00. `--operator fixed`
+  reproduces the M4 runs.
 
-; AB + 3E hashes change, two_state + 1E unchanged)
+### Added (M7 — plant description and operator manuals; no simulator change)
 
-- **Three-element level trim retuned** `control.drum_level_3e.trim` kp 15 →
-  30, ki 0.15 → 0.075 (integral time 100 → 400 s). The old tuning left the
-  AB drum + 3E with a ~1890 s drum-level mode at negative damping (ζ ≈ −0.02,
-  pre-existing in 0.3.0, found by the M4 quiet day). Reduced model:
-  unstable iff Ti < κ·ρA ≈ 116 s, from the AB drum's sustained inverse gain.
-  New ring-down ζ ≈ 0.44; the AB quiet day goes from 56 alarm activations to 0.
-  AB cascade shifts ≤ 0.30 s. Pegging-steam feedforward was tried and rejected
-  (it doesn't damp the mode).
-- `test_ab_3e_slow_level_mode_is_damped` is no longer an xfail.
-- `scripts/level_mode_ringdown.py` reports the load-step peak, the level at
-  1800 s, a half-cycle ζ estimate and the late/first-peak envelope ratio.
-
-
-
-- **Sensor noise**, config `sensors.noise.<instrument>: {sigma, tau}`
-  (instrument units; `tau = 0` white, `tau > 0` exact AR(1)/OU, started
-  stationary). Empty by default (baseline adds an empty `sensors.noise: {}`).
-- **Sensor fault kinds** `drift` (`rate`, optional `max_bias`), `lag`
-  (`tau_s`, starts at the current truth, no jump), `noise_increase`
-  (`factor`); `stuck` and `bias` unchanged. Pipeline order: truth → lag →
-  bias/drift → noise → stuck → clamp → quantize. At most one fault per
-  instrument.
-- **Draw contract (I2)**: every instrument draws one standard normal from
-  `sensor.<instrument>` on every `step()`, whatever its sigma, fault or the
-  plant state; `SensorBank.last_draws` exposes them. The steady-state init
-  sample is noise-free and draws nothing.
-- `sensor_fault` events are validated at scenario load (target, kind,
-  required params, ranges); `SensorFault` validates itself.
-- `hotwell.historian.TRUTH_SIGNALS` (`m_peg`, `m_relief`, `q_fire`, `p_mech`)
-  and `INDICATION_SIGNALS` (I5); a test fails on any unclassified historian
-  signal.
-- `SensorBank(noise=None, streams=None, dt=0.05)`; `sample(t, truth, noisy=True)`.
-
-: every trajectory shifts; 0.3.0 hashes and session logs no longer reproduce**)
-
-- **Turbine specific work depends on drum and condenser pressure.**
-  `w = eta_t · Δh_s`, the isentropic drop from saturated vapour at `p_drum`
-  to the wet region at `p_cond`; `eta_t` (0.799126) is derived so that `w`
-  equals `turbine.w_design` (780 kJ/kg) at the design state, which keeps the
-  60 MW / 76.923 kg/s / droop anchors exact. Condenser backpressure now
-  costs output: −1.414 %/kPa at rated. `h_exh = h_g − w` keeps the energy
-  audit exact. The throttling loss across the governor valve is not modelled.
-- **Config key renamed** `turbine.w_spec` → `turbine.w_design`.
-  `TurbineParams.w_spec` → `w_design`; `Turbine.p_mech(y)` → `p_mech(y, w)`;
-  `Turbine.deriv` takes `w`.
-- **Protection: `COND_P_HIHI`** (cond_pressure > 18 kPa for 5 s, latching →
-  turbine trip; legend `COND PRESS / HIGH HIGH`). The table has 20 conditions.
-- Canonical cascade shifts ≤ 0.30 s; ordering and first-out unchanged (tables
-  in HANDOFF).
-
-### Added (M2)
-
-- `hotwell.components.turbine.isentropic_drop(p_in, p_cond)`,
-  `Turbine.set_design`, `Turbine.specific_work`, `Turbine.eta_t`.
-- Steam-property fits `s_f(p)`, `s_g(p)` (derived s_g = s_f + h_fg/T),
-  `sf_t(T)`, `hg_t(T)`; the generator gains an oracle-free s_f transcription
-  guard. `scripts/audit_steam_props.py` audits all typed tables and fits
-  against IAPWS-97 (optional `iapws`, not a dependency).
-- `scripts/run_scenario.py --fidelity two_state_1e|astrom_bell_3e`;
-  `scripts/steady_state.py` prints the turbine sensitivities.
-
-### Changed
-
-- `Simulator.rng` is now documented as unused (kept for 0.3.0 compatibility).
-  The phase-1 rule "all randomness from one Generator owned by the simulator"
-  becomes "all randomness from the simulator's StreamBank".
-- Determinism scope stated explicitly: same seed + scenario + platform +
-  **numpy version** (NumPy does not promise stable `Generator` distribution
-  algorithms across releases; `tests/test_rng.py` pins raw and normal draws
-  under numpy 2.5.1 as a loud gate).
+- `docs/manual/` 00–08: index/conventions, plant description, instrumentation,
+  controls, protection, normal procedures (rendered from the procedure YAML),
+  alarm response (one section per window), symptom-based abnormal procedures
+  AOP-01..09, model limitations.
+- `scripts/gen_manual.py [--check]`: regenerates the GENERATED blocks (design
+  point from a live steady-state init, equipment, instruments, actions, loops,
+  protection, procedures, per-window `arp_<ID>` headers).
+- `hotwell.units`: SI → customary affine table, constants copied exactly from
+  hotwell-panel `displayunits.py` (condenser as inHg vacuum; currents in A).
+- `tests/test_manual_sync.py`: blocks current; windows ↔ sections; procedures
+  rendered; every backticked name real (templates resolved); every
+  `<!-- src: path::Symbol -->` resolves; units cover the instruments exactly;
+  no fault-injection event names (answer-key hygiene).
 
 ## 0.3.0 — 2026-08-29
 

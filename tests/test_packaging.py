@@ -83,3 +83,13 @@ def test_path_overrides_still_accepted(tmp_path):
     assert len(table.conditions) == 22  # 19 in 0.3.0 + COND_P_HIHI (M2) + CP1/CP2_SUCTION (M5b)
     # str and Path both accepted
     assert len(load_protection_table(str(custom)).conditions) == 22
+
+
+def test_version_matches_installed_metadata():
+    """`hotwell.__version__` and the pyproject version are two copies of one
+    fact; a release bump that edits only one fails here. (Under an editable
+    install the metadata is refreshed on reinstall, so reinstall after a bump.)"""
+    from importlib.metadata import version
+    print(f"\n__version__ {hotwell.__version__}  metadata {version('hotwell')}")
+    assert hotwell.__version__ == version("hotwell")
+

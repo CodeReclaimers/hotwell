@@ -1,765 +1,551 @@
-# HANDOFF — hotwell phase 1
+# HANDOFF — hotwell 0.4.0
 
-## 0.4.0 — in progress (branch `release-0.4`, 2026-11-07)
+Benchmark-readiness core release, 2026-11-07, tag `v0.4.0`, plan
+`PLAN-0.4-benchmark-core.md` (approved; decisions Q1–Q5 in its §4). Public at
+<https://github.com/CodeReclaimers/hotwell> (MIT), installed from GitHub tags only:
+`pip install "hotwell @ git+https://github.com/CodeReclaimers/hotwell@v0.4.0"`.
 
-Benchmark-readiness release per `PLAN-0.4-benchmark-core.md` (approved, Q1–Q5
-answered there). Milestone status is in `.plan-checkpoint.md`.
-
-- **M0 complete — golden hashes.** Six canonical runs (3 scenarios × 2
-  fidelities) pinned from pristine 0.3.0 in `tests/test_golden_hashes.py`;
-  regenerate with `scripts/golden_hashes.py [SRC]`. Run lengths: two_state
-  `cp1_trip_unrecovered` dies at t = 427.30 s (MFT +127.3 s after the trip),
-  AB+3E at 522.90 s (+222.9 s); the other four run to max_t = 900 s.
-  New `Simulator.observation_hash` covers what a consumer saw: sensed values,
-  indications, and alarm states including acknowledgement (alarms added on
-  Alan's amendment; a test shows an ack changes the observation hash and
-  leaves the state hash alone).
-  **The two hashes differ in sensitivity:** a 1e-7 relative kp change moves the
-  state hash but not the observation hash (quantization absorbs sub-LSB
-  differences in truth). Use the state hash for "physics unchanged" and the
-  observation hash for "the exported data is unchanged".
-- **M1 complete — rng streams.** `hotwell.rng.StreamBank` / `STREAM_IDS`
-  (append-only, pinned in `tests/test_rng.py`; a coverage test fails when a new
-  instrument has no `sensor.*` stream, which M5b's `makeup_flow` will hit by
-  design). Golden hashes unchanged. **Numpy is now part of the determinism
-  contract** once noise lands (M3): `test_pinned_raw_draws_numpy_version_gate`
-  fails on a numpy that changes PCG64/SeedSequence or the `normal()`
-  algorithm. The bench repo should pin numpy for released item sets.
-- **M0 amendment.** The observation hash also covers alarm states (Alan).
-- **Q3 done.** Tag `v0.3.0` → `9464eb2` (local, not pushed). The panel venv
-  now has a **non-editable** hotwell 0.3.0 installed from that tag
-  (`uv pip install "hotwell @ git+file:///home/alan/plant-sim/hotwell@v0.3.0"`);
-  panel suite 99 passed before and after. **Hazard:** the panel README's dev
-  setup still says `uv pip install -e ../hotwell`, which silently re-points the
-  panel at the 0.4.0 tree. Not edited (panel repo out of scope).
-- **M2 complete: physics change, hashes re-pinned.** Turbine specific work
-  is `w = eta_t · Δh_s(p_drum → p_cond)` (isentropic, saturated drum vapour
-  into the wet region), with `eta_t` derived so `w = 780 kJ/kg` exactly at the
-  design state; low-vacuum trip `COND_P_HIHI` (18 kPa, 5 s, latching →
-  turbine trip). Config key `turbine.w_spec` → `turbine.w_design` (renamed:
-  it is no longer the work at every state).
-
-  | Quantity (60 MW rated, `scripts/steady_state.py`) | Value |
-  |---|---|
-  | eta_t (derived) | 0.799126 |
-  | w at design (8 MPa, 7.0000 kPa) | 780.000 kJ/kg |
-  | ∂w/∂p_cond | −11.026 J/kg/Pa = **−1.414 %/kPa = −4.787 %/inHg** |
-  | ∂w/∂p_drum | +4918.6 J/kg/MPa = +0.631 %/MPa |
-  | Design point table (flows, powers, positions, NPSH, inventory) | identical to 0.3.0 to the printed digit |
-
-  The backpressure sensitivity is the ideal isentropic value (∂h/∂p|_s = v),
-  checked against Clapeyron in `tests/test_m2_turbine.py` (rel ≤ 4.4e-4 over
-  5.5–18 kPa × 7–9 MPa). It is **steeper than large-unit rules of thumb**
-  because exhaust/leaving losses are not modelled. The plan's hand estimate
-  (−1.1 %/kPa) was a 7→12.35 kPa chord; the local slope at 7 kPa is steeper.
-  **Not modelled (for the M7 limitations chapter): throttling loss across the
-  governor valve** (the expansion starts from the drum state; that would need
-  superheated properties).
-
-  New property fits: `s_f(p)`, `s_g(p)` (s_g derived as s_f + h_fg/T, not
-  typed), `sf_t(T)`, `hg_t(T)`. Typed values audited against IAPWS-97 via the
-  optional `scripts/audit_steam_props.py` (needs `iapws`, which is **not** a
-  dependency): worst 0.074 % overall, and that worst case is the *existing*
-  0.3.0 psat table; the new entries are ≤ 0.025 %. The generator also checks
-  typed s_f rows against ∫(dh_f − v_f dp)/T with no oracle; a 0.7038→0.7083
-  digit swap trips it (7.5 % vs the 3 % gate).
-
-  Cascade re-measured (`run_scenario.py cp1_trip_unrecovered --events
-  --fidelity …`), first activation in s after the CP-1 trip, 0.3.0 → 0.4.0:
-
-  | Event | two_state + 1E | AB + 3E |
-  |---|---|---|
-  | DRUM_P_HI | +19.60 → +19.30 | +90.30 → +90.30 |
-  | DA_LO | +23.15 → +23.15 | +21.95 → +21.95 |
-  | HOTWELL_HI | +57.25 → +57.35 | +57.20 → +57.20 |
-  | FP1_SUCTION trip | +92.80 → **+92.90** | +77.90 → +78.05 |
-  | DRUM_LVL_HI | — | +89.10 → +89.25 |
-  | SAFETY_VALVE | +98.00 → +98.15 | +99.05 → +99.00 |
-  | DRUM_LVL_HIHI → turbine trip | — | +100.50 → +100.45 |
-  | FREQ_HI | — | +102.55 → +102.50 |
-  | DRUM_LVL_LO | +112.50 → +112.70 | +202.45 → +202.60 |
-  | DRUM_LVL_LOLO → MFT, plant dead | +127.30 → **+127.50** | +222.90 → +223.10 |
-
-  Order and first-out chains unchanged; every shift ≤ 0.30 s. T6 droop:
-  Δf −0.3100 → −0.3200 Hz vs analytic −0.3181 (97.4 % → 100.6 %). The
-  analytic formula assumes constant w; higher exhaust flow now raises p_cond
-  and lowers w, so frequency settles slightly lower. T8 levels unchanged
-  (drum +1.0 mm, DA +0.002 m, HW −0.003 m). AB swell +5.9 → +6.1 mm. FP-2
-  start +0.326 → +0.329 MW. The end-of-run energy residuals of the dead plant
-  (−28.49 %, +99.97 %) equal 0.3.0's to within 0.07 percentage points; that's
-  the known transient behaviour of a steady-state diagnostic.
-
-  New behaviour (tests): a +5 kPa air-ingress step at rated settles at
-  Δf −0.1623 Hz vs droop-predicted −0.1638, ΔP_e −0.2205 vs −0.2228 MW (vacuum
-  loss now costs output); a 100 Pa/s air-ingress ramp starting at t = 10 s
-  alarms COND_P_HI at t = 64.1 s and trips on COND_P_HIHI at t = 123.1 s
-  (first out), sensed 18.55 kPa at the trip.
-
-  **For the panel's 0.4.0 migration:** the protection table now has **20**
-  conditions; the board's annunciator capacity/manifest needs a window for
-  `COND_P_HIHI` (legend `COND PRESS / HIGH HIGH`); casualty pins re-measure
-  per the table above; 0.3.0 session logs will not replay.
-
-  Pre-existing (0.3.0 as well, not changed): the steady init's station-service
-  fixed point stops within 1 kW (`simulator.py`, `< 1e3`), so the solved
-  state sits +1.0e-4 kg/s / +80 W off the exact design flow.
-- **M3 complete: sensor noise, fault kinds, I5.** Hash-neutral at defaults
-  (goldens unchanged). Pipeline `truth → lag → bias/drift → noise → stuck →
-  clamp → quantize`; one fault per instrument. Measured (`tests/test_m3_sensors.py -s`):
-  white σ +0.52 % of configured (10⁴ samples); AR(1) τ = 2 s lag-1 r 0.97466
-  vs 0.97531; drift slope exact to 1e-6; lag 63.2 % after 41 steps (τ/dt = 40,
-  quantization rounds the crossing up one step). **I2 holds through a feed-pump
-  trip** (19/22 sensed instruments differ between the twins; raw draws are
-  identical). Cost: the 22 draws run every step even with noise off:
-  T11 13.4 → 13.7 s per simulated hour (+2 %); noise on all 22 instruments
-  2.38 vs 2.36 s per 600 s.
-  **For the bench repo:** export "what the operator saw" from `Observation`
-  (values + indications + alarms), or from historian signals minus
-  `TRUTH_SIGNALS`. Two historian quirks are documented on
-  `INDICATION_SIGNALS`: `safety_open` ≡ indication `safety_valve_open`, and
-  `<pump>_mode` separates *starting* from *stopped*, which the lamps don't.
-  Noise is a config (plant) property, not a scenario property, so item
-  generators set it through the config dict.
-- **M4 complete: load ramps, load process noise, quiet day.** Hash-neutral
-  at defaults. `set_load` takes `ramp_s` (exact endpoint, frozen during RK4);
-  `loads.noise.<block>: {sigma_w, tau > 0}` is an OU deviation starting at 0
-  (a stationary start would be a physical load step at t = 0⁺). Config path
-  `loads.noise.<block>` rather than the plan's `loads.<block>.noise`, because
-  `loads:` is flat. **Finding:** load noise moves frequency *more* than
-  quasi-static droop (ratio 1.41 at τ = 30 s, 1.11 at τ = 300 s;
-  corr(p_drum, p_dev) −0.65 / −0.34). A load rise sags drum pressure, and
-  P_m ∝ p_drum.
-
-  **Quiet day** (`scripts/quiet_day.py`, `pytest -m slow -s`; profile 60 → 36
-  → 60 MW with 60-min ramps, provisional noise preset, fixed load-reference
-  trims every 10 s until M6), seed 42:
-
-  | | two_state + 1E | AB + 3E |
-  |---|---|---|
-  | plan criteria (no trips/rejections, mass < 0.1 %) | PASS | PASS (formally) |
-  | wall for 24 h | 346.4 s (249×) | 389.5 s (222×) |
-  | mass audit drift | +0.00000 % | −0.00000 % |
-  | alarm activations | **0** | **56**, all after 22 h: DRUM_LVL_HI/LO chatter |
-  | sensed frequency | 59.92 … 60.10 Hz | 59.93 … 60.09 Hz |
-  | sensed drum level | −15 … +16 mm | **−227 … +219 mm** |
-  | sensed hotwell level | −13 … +14 mm | −350 … +360 mm |
-  | FP-1 NPSH margin min | 2.55 m | 2.30 m |
-
-  The two_state day is genuinely quiet. **The AB + 3E day is not**; see the next
-  item. (The AB day's hourly progress lines look like hours-scale drift. That is
-  aliasing: 1.9 cycles of a ~31-min mode per hourly sample.)
-
-- **RESOLVED IN M4b (was a known issue, pre-existing in 0.3.0, found by M4):
-  AB drum + three-element feedwater was unstable.** A noise-free ring-down
-  (`scripts/level_mode_ringdown.py`: +6 MW non-vital step at 300 s, 6 h,
-  true level) shows a period of 1889 ± 5 s and log decrement −0.13 … −0.18
-  per cycle (ζ −0.021 … −0.028); amplitude grows ~15 %/cycle (−78.9 mm at
-  479 s … +115.9 mm at 10 861 s). Pristine 0.3.0: period 1869–1899 s, ζ
-  −0.020 … −0.026, the same mode. M2 did not cause it. **D18's "converging"
-  was judged from 1500 s, under one period.** Mechanism: the slow level-trim PI
-  closes an integrating plant (drum inventory, ρA ≈ 13.5 t/m) and must carry
-  the whole pegging-steam offset (~10 kg/s, unseen by the steam-flow
-  feedforward). The integrator estimate is ω_n = √(ki/ρA) ≈ 3.3e-3 rad/s
-  (31 min), ζ = kp/(2√(ki ρA)) ≈ 0.17. The AB inverse response (D18) is
-  non-minimum-phase and pushes that below zero. Attribution runs (same script):
-
-  | variant | period | ζ (successive cycles) |
-  |---|---|---|
-  | two_state + 3E (control) | 1832–1967 s | +0.144 … +0.091 (damped) |
-  | AB, trim kp 30 (×2) | 1665–1791 s | +0.197 … +0.123 |
-  | AB, trim ki 0.075 (×½) | 2618–2714 s | +0.153 … +0.072 |
-  | AB, trim kp 7.5 (×½) | — | trim saturates at +25 kg/s, peak 587 mm |
-
-  (The table above is the M4-time diagnosis with the old tuning.)
-- **M4b complete: AB + 3E level-trim retune (kp 15 / ki 0.15 → kp 30 /
-  ki 0.075).**
-  *Option 2 (pegging-steam feedforward), approved first, was rejected on
-  evidence:* a scratch experiment feeding the TRUE pegging flow forward
-  (demand = steam + pegging + trim, trim re-initialised to 0) stayed unstable
-  (ζ −0.023 … −0.031, period 1760 s, peak 298 mm). A constant offset was
-  identical to baseline, as linear theory requires. My earlier
-  "the trim carries a large offset" reasoning was wrong as a stability argument.
-  *Root cause:* the AB drum's **sustained** inverse gain (D18: −0.166 m³ of
-  sub-surface steam per kg/s of feed → κ ≈ 8.6 mm of level per kg/s) inside
-  the trim PI. A reduced model L = M/ρA − κF, F = PI(−L), ρA ≈ 13.5 t/m, has
-  trace ∝ (κ·ki − kp/ρA), so it is **unstable iff Ti = kp/ki < κ·ρA ≈ 116 s**
-  (old Ti = 100 s). Predicted ζ −0.028 / period 1760 s vs measured −0.022 …
-  −0.028 / 1890 s. Predicted threshold kp ≈ 17.3 at ki 0.15; the committed
-  ring-down brackets it: kp 16.5 → ζ −0.010, kp 18.5 → ζ +0.011.
-  **D18's aggressive-trim failure (kp 60, ki 1.5) was Ti = 40 s: an
-  integral-time problem, not too much gain.**
-  *New tuning, Ti 400 s* (model ζ +0.39), `scripts/level_mode_ringdown.py`:
-
-  | | old (kp 15, ki 0.15) | new (kp 30, ki 0.075) |
-  |---|---|---|
-  | first peak after +6.8 MW step | −77.1 mm @ 480 s | −77.6 mm @ 471 s |
-  | level at t = 1800 s | +15.3 mm | +14.8 mm |
-  | damping (half-cycle estimate) | modal ζ ≈ −0.02 | ζ ≈ +0.44 |
-  | last-2-h amplitude / first peak (6 h) | 2.81 | 0.014 |
-  | quiet day, AB + 3E: alarm activations | 56 | **0** |
-  | quiet day, AB + 3E: sensed drum level | −227 … +219 mm | −36 … +37 mm |
-
-  Short-term response essentially unchanged (feedforward + inverse response
-  dominate the first half cycle). AB cascade (`run_scenario.py
-  cp1_trip_unrecovered --events --fidelity astrom_bell_3e`), M4 → M4b, same
-  order and first-out: DA_LO +21.95 → +21.85, FP1_SUCTION +78.05 → +78.20,
-  DRUM_LVL_HI +89.25 → +89.30, DRUM_LVL_HIHI +100.45 → +100.55, DRUM_LVL_LOLO
-  +223.10 → +223.40 (all ≤ 0.30 s). **Only the three AB goldens re-pinned;**
-  two_state + 1E goldens and quiet day are byte-identical. The strict xfail is
-  now `test_ab_3e_slow_level_mode_is_damped` (gate: last-2-h / first peak
-  < 0.10 and half-cycle ζ > 0.2; the old tuning fails at 2.81).
-  Observed, not investigated: in the AB quiet day the hotwell peaks at
-  +0.244 m at 4.24 h, just after the ramp to 36 MW (≈ 1.9 t of inventory out of
-  the drum), inside the ±0.5 m alarm band.
-  **For the panel's 0.4.0 migration:** its default fidelity (AB + 3E) gets
-  this retune; the AB casualty-pin column shifts ≤ 0.30 s.
-  **For the bench repo / the "instability as a fault" idea:** Ti = κ·ρA ≈
-  116 s is a designable stability boundary. An injected trim mis-tune, or phase
-  lag in the loop (e.g. M3 `lag` on drum_level / feed_flow), can produce a
-  growing ~30 min oscillation at a predictable rate against a stable baseline.
-- **M5 complete: hidden physical faults** (`hotwell.faults`; `tube_leak`
-  deferred to M5b). Factors live in `Discrete` (frozen during RK4, optional
-  `ramp_s`, exact endpoint); a zero-magnitude fault is bit-identical to none.
-  Signatures (`tests/test_m5_faults.py -s`, settled at 900 s, two_state + 1E):
-  FRV Cv × 0.8 → position ratio 1.2478 (x·Cv const predicts 1.25); LCV
-  1.2530; firing eta × 0.95 → firing ratio 1.0533 (1/0.95 = 1.0526);
-  fouling × 3 → Δp_cond 3164.1 Pa = predicted 3164.1, frequency −0.108 Hz
-  (M2 backpressure). FP-1 head −3 % → FRV 0.5528 → 0.6519, FP-1 current
-  400 → 390 A, and **swapping to FP-2 restores the FRV to 0.5534** (visible only
-  while the degraded pump runs, which makes background swaps diagnostic). A
-  stuck FRV opens a controller-output gap up to 0.43; a stuck DA LCV drives
-  the DA PI to 1.0 and the DA level to −0.435 m. Mass and energy audits close
-  under every fault (energy residual ≤ 6.9e-4 of firing at 900 s).
-  **A cascade worth keeping:** throttle slew × 0.02 turns a +6 MW step into
-  UF_SHED (58.74 Hz) → load rejection → OVERSPEED trip (68.03 Hz) at t = 35.6 s
-  (pinned as a test; the one-step throttle "jump" is the D12 trip slam).
-
-  **Detectability (rough, `scripts/fault_detectability.py`): an oracle-twin
-  bound.** Constant 60 MW, quiet-day noise preset, step onset at 300 s, 1 h;
-  detected when the twin difference exceeds max(3σ, 2 LSB) for 10 s. Delay
-  after onset; left two_state + 1E, right (after `|`) AB + 3E:
-
-  ```
-  fault                                     magnitude     delay  first instrument   |  magnitude     delay  first instrument
-  pump_degrade fp1                              0.995       6 s  fp1_current   |      0.995       2 s  fw_valve_pos
-  pump_degrade fp1                               0.99       1 s  feed_flow   |       0.99       2 s  fw_valve_pos
-  pump_degrade fp1                               0.98       1 s  feed_flow   |       0.98       1 s  fp1_current
-  pump_degrade fp1                               0.97       1 s  feed_flow   |       0.97       1 s  fp1_current
-  pump_degrade cp1                               0.99      27 s  da_lcv_pos   |       0.99      23 s  da_lcv_pos
-  pump_degrade cp1                               0.98       1 s  condensate_flow   |       0.98       1 s  condensate_flow
-  pump_degrade cp1                               0.95       1 s  condensate_flow   |       0.95       1 s  condensate_flow
-  pump_degrade cp1                                0.9       1 s  condensate_flow   |        0.9       1 s  condensate_flow
-  valve_degrade frv                              0.99       n/d  -   |       0.99       n/d  -
-  valve_degrade frv                              0.98      34 s  da_lcv_pos   |       0.98       2 s  fw_valve_pos
-  valve_degrade frv                              0.95       1 s  feed_flow   |       0.95       2 s  fw_valve_pos
-  valve_degrade frv                               0.9       1 s  feed_flow   |        0.9       1 s  fw_valve_pos
-  valve_degrade lcv                              0.99       n/d  -   |       0.99       n/d  -
-  valve_degrade lcv                              0.98      27 s  da_lcv_pos   |       0.98      28 s  da_lcv_pos
-  valve_degrade lcv                              0.95       1 s  condensate_flow   |       0.95       1 s  condensate_flow
-  valve_degrade lcv                               0.9       1 s  condensate_flow   |        0.9       1 s  condensate_flow
-  firing_degrade                                0.998       n/d  -   |      0.998       n/d  -
-  firing_degrade                                0.995       n/d  -   |      0.995       n/d  -
-  firing_degrade                                 0.99      15 s  drum_pressure   |       0.99      99 s  firing_rate
-  firing_degrade                                 0.98       7 s  drum_pressure   |       0.98      21 s  fw_valve_pos
-  condenser_fouling                              1.05       n/d  -   |       1.05       n/d  -
-  condenser_fouling                               1.1       n/d  -   |        1.1       n/d  -
-  condenser_fouling                              1.25       1 s  cond_pressure   |       1.25       1 s  cond_pressure
-  condenser_fouling                               1.5       1 s  cond_pressure   |        1.5       1 s  cond_pressure
-  actuator_slow fw_valve                          0.5       n/d  -   |        0.5       n/d  -
-  actuator_slow fw_valve                          0.2       n/d  -   |        0.2       n/d  -
-  actuator_slow fw_valve                         0.05       n/d  -   |       0.05       n/d  -
-  actuator_slow throttle                          0.5       n/d  -   |        0.5       n/d  -
-  actuator_slow throttle                          0.2       n/d  -   |        0.2       n/d  -
-  actuator_slow throttle                         0.05       n/d  -   |       0.05       n/d  -
-  actuator_slow firing                            0.5       n/d  -   |        0.5       n/d  -
-  actuator_slow firing                            0.2       n/d  -   |        0.2       n/d  -
-  actuator_slow firing                           0.05       n/d  -   |       0.05       n/d  -
-  actuator_stuck fw_valve                                 456 s  da_lcv_pos   |                  4 s  fw_valve_pos
-  actuator_stuck throttle                                   6 s  frequency   |                  6 s  frequency
-  actuator_stuck firing                                    26 s  drum_pressure   |                115 s  fw_valve_pos
-  actuator_stuck da_lcv                                    32 s  da_lcv_pos   |                 36 s  da_lcv_pos
-  ```
-
-  Readings for item design: (1) **actuator_slow is undetectable at constant
-  load** at every factor; it needs a transient (a load ramp or a background
-  operation, M6). (2) **A stuck FRV takes 456 s under 1E but 4 s under 3E**:
-  the 3E flow loop dithers the valve on feed-flow noise, and a stuck valve
-  shows as the dither *stopping*. (3) Smallest detected steps within 1 h: FP
-  head 0.995, CP head 0.99, valve Cv 0.98 (0.99 not detected), firing eta 0.99
-  (0.995 not detected), fouling 1.25 (1.1 not detected). All onsets here
-  are steps; many 1 s detections are the step transient. Ramped onsets need
-  their own sweep (bench repo).
-- **M5b complete: hotwell makeup system, CP suction protection, `tube_leak`.**
-  Spec approved with all five recommendations (makeup-only; per-pump CP NPSH
-  trips at 0.25 m; hotwell setpoint −0.15 m; water-space leak; direct-command
-  valve). **Gate G1: all six STATE goldens and step counts unchanged;** only
-  the observation goldens were re-pinned (4 new instruments).
-  **G1 first failed, and that's worth keeping:** in `cp1_trip_recovered` the
-  makeup valve opened (max 4.76 kg/s two_state, 379.5 kg added) with the
-  hotwell never below −0.0 mm. Cause: the shared PI's back-calculation
-  anti-windup absorbed −kp·e while the valve sat closed during the CP outage
-  (I ≈ +8), so the valve kicked open once the level came back to ≈ 0, still
-  above setpoint. A bumpless `initialize(0, pv)` also put the opening point at
-  the current level. Fix (approved): a per-loop `anti_windup: conditional` on
-  the hotwell loop only (default stays `backcalc`, so no other loop changes),
-  and I = 0 at init. `test_conditional_anti_windup_does_not_kick_a_closed_valve_open`
-  isolates the mechanism (backcalc I 8.01 → output 1.000; conditional 0.000).
-  **Any loop that sits at a limit for long periods has the same exposure under
-  backcalc.**
-
-  | Gate | Result |
-  |---|---|
-  | G2 1 kg/s leak, means over 6000–11000 s | makeup +0.008 % (two_state) / +0.142 % (AB) of leak; hotwell −150.00 / −149.96 mm (range ±0.5 mm); mass drift ~1e-8; energy residual ≤ 3.6e-4 |
-  | G3 stuck makeup + 1 kg/s leak | HOTWELL_LO at 3996 s; CP1_SUCTION trip at 6009 s vs predicted 5965 s (+0.7 %); FP-1 suction trip follows at 6099.8 s |
-  | G4 capacity | 10.0000 kg/s wide open; √Δp vacuum dependence exact (9.8238 at +5 kPa air) |
-  | G5 | zero leak bit-identical; malformed events fail at load |
-  | G6 quiet days | makeup valve max command 0.0 both fidelities; 0 alarms |
-  | leak trend (0.3 kg/s) | hotwell −0.1353 m/h vs predicted −0.1361 |
-
-  **Spec deviation on G2 (recorded):** gated on time means, not instantaneous
-  values. The loop hunts on the 1 mm hotwell-level resolution (makeup range
-  0.84–1.18 kg/s around 1.00): a quantization limit cycle, like the governor's
-  0.01 Hz dither. The window starts at 6000 s because at 4000–6000 s the AB
-  drum is still shedding inventory (−16.9 kg) and the mean reads −1.18 %.
-  G2 is in the slow set (it made the default gate 4 min 13 s).
-
-  Detectability (G7, `scripts/fault_detectability.py`, same oracle-twin bound):
-
-  ```
-  tube_leak                                       0.1     524 s  hotwell_level
-  tube_leak                                       0.3     192 s  hotwell_level
-  tube_leak                                       1.0      40 s  fw_valve_pos
-  tube_leak                                       3.0      13 s  fw_valve_pos
-  tube_leak                                       0.1     689 s  hotwell_level
-  tube_leak                                       0.3     388 s  hotwell_level
-  tube_leak                                       1.0     123 s  drum_level
-  tube_leak                                       3.0      44 s  drum_level
-  ```
-  (first four rows two_state + 1E, last four AB + 3E). A small leak shows
-  first as the hotwell trend; larger ones through the feed side.
-  **For the panel's migration:** +4 gauges, 22 windows (CP-1/CP-2 SUCTION), a
-  makeup valve with a CST terminal on the mimic, a hotwell-level loop station.
-- **M6 complete: procedures as data, the background operator, the action
-  recorder.** Four procedures (NOP-01..04) in `hotwell/data/procedures/`, the
-  single source for the runner and the manual's chapter 05.
-  `ProcedureRunner` is a closed-loop scripted operator (reaction delay before
-  every step, contingencies via goto, shift log, no casualty response).
-  `ActionRecorder` + `drive()`: every driven run reduces to one scenario that
-  replays bit-identically. Tested through a 14 000-step run with a same-tick
-  scenario-action / operator-action collision on the same key (the operator's
-  62 MW correctly wins), and through a YAML round trip. Hash-neutral (goldens
-  unchanged).
-  **Quiet day now runs closed loop by default** (`--operator closed-loop`:
-  NOP-03 every 300 s, CP swap at 06:00, FP swap at 18:00). Both fidelities
-  PASS: NOP-01 and NOP-02 completed, NOP-03 completed 287/287 (116 / 112 needed
-  moves), 0 alarms, makeup command 0.0, mass drift 0.00000 %. (The closed-loop
-  day's sensed extrema were not captured in this run's output; rerun
-  `scripts/quiet_day.py` to see them. The M4 extrema above are from
-  `--operator fixed`.)
-  **A procedure bug the 24 h day caught:** NOP-01's parallel-run check
-  `condensate_flow > 50 kg/s` was sized at rated and aborted a correct swap at
-  the 36 MW trough (47.2 kg/s). It is now a load-independent 20 kg/s floor.
-  The DA level and the CP NPSH margins carry the real check. **Absolute flow
-  thresholds in procedures must hold at minimum load.**
-  Design choices (ask-vs-decide): step kinds do/hold/trim/ack_active; trim gain
-  20 MW/Hz (plant 21.5: monotone convergence); `alarm.ack` one per tick (one
-  key per action dict); fixed 5 s reaction by default.
-- **M7 complete: plant description and operator manuals** (`docs/manual/`,
-  nine chapters). Every table is generated (`scripts/gen_manual.py`); the
-  prose is written from the code, and its claims carry `<!-- src: path::Symbol -->`
-  comments that the sync test resolves. **Deviations from the plan's wording
-  (recorded):** (1) provenance cites `path::Symbol`, not `file:line`, because
-  lines rot on every edit and symbols can be checked mechanically; (2) the tables
-  name protection actions in operator words ("trip CP-1", "master fuel trip"),
-  not the engine's identifiers, which the hygiene check flagged because
-  `trip_pump` is also a fault-event name; (3) `hotwell.units` keeps pump
-  currents in amperes, not the panel's % rated. The panel keeps its own copy of
-  the conversion table until its migration (two copies; constants identical by
-  construction).
-  Gate mutations (ad-hoc): a typo'd instrument name in prose → the name gate
-  fails; a hand-edited setpoint → the staleness gate fails. The first name
-  mutation never applied (the sed pattern crossed a line break), so it was
-  redone with a confirmed edit.
-  **For the bench repo:** the manual is an ablation knob (with/without). The
-  abnormal procedures are symptom-based by construction and the test forbids
-  fault-event names.
-
-## 0.3.0 — station-service pump loads (2026-08-29)
-
-Requested from panel play: starting a pump did not move the MW meter. Running
-pump motors now load the islanded bus (`CHANGELOG.md` has the mechanism and
-config keys). Key semantics: **scenario `load_mw` remains the commanded gross
-output** — the abstract blocks absorb `load_mw − station_service` at init, so
-the 60 Hz droop equilibrium and the §5.1 display anchors are unchanged
-(sensed at t = 0: mw_out 60.000 MW, 60.0000 Hz, steam 76.900, feed 87.100
-kg/s). Suite: `61 passed` (55 from 0.2.0 + 6 new), ruff clean.
-
-Magnitudes at 60 MW: station service 1040.7 kW (CP-1 + FP-1). FP-2 start
-moves the meter (+0.33 MW settled); CP-2 start is +23 kW — real, but below
-the 0.1 MW meter resolution (honest for a 40 m-head condensate system; the
-ammeter is the visible cue). Trip effects now include losing ~1 MW of motor
-load when a feed pump trips mid-cascade.
-
-The canonical timings below were re-measured under 0.3.0
-(`scripts/run_scenario.py <scenario> --events`); every shift is ≤ 0.2 s and
-the first-out chains are unchanged. 0.2.0 session hashes do not reproduce
-under 0.3.0 (physics change).
-
-## 0.2.0 — panel precursor (2026-07-26)
-
-Released for the `hotwell-panel` repo per PLAN-panel.md §11. **No physics
-changed**; the canonical casualty timings below are unchanged (verified from a
-wheel install: FP1_SUCTION still fires at +92.65 s after the CP-1 trip).
-Suite: `55 passed` (37 from 0.1.0 unchanged + 18 new), ruff clean.
-Full detail in `CHANGELOG.md`.
-
-1. **Manual trip actions** `trips.manual_mft`, `trips.manual_turbine`. Identical
-   in effect to the protective actions — `_do_mft` / `_do_turbine_trip` were
-   extracted from `_apply_protective_actions` as a behavior-neutral refactor
-   (37 tests green before the actions were added), so both paths run the same
-   code. First-out records `MANUAL_MFT` / `MANUAL_TURBINE_TRIP`. Re-pressing an
-   already-latched trip is rejected-and-recorded. Manual trips hold no engine
-   latch, so `trips.reset` clears them — same convention as scenario-injected
-   pump trips (D14).
-2. **Annunciator legends**: optional `label:` (1–2 lines, ≤ 12 chars) per
-   protection-table entry, defaulting to the id via `Condition.legend`. All 19
-   shipped conditions carry one; widest line is 12 chars (`SAFETY VALVE`).
-   Display-only — the engine never reads it.
-3. **Package-data migration**: `configs/baseline.yaml`, `data/protection.yaml`,
-   and `scenarios/*.yaml` now live in `src/hotwell/data/`, behind
-   `hotwell.data.{baseline_config_path, protection_table_path,
-   builtin_scenarios, read_text}`. All loaders default to the packaged copies
-   and still accept a path override. `DEFAULT_CONFIG` and `DEFAULT_TABLE` are
-   gone (both were repo-root-relative).
-
-**Testing note worth keeping.** A chdir-to-tmpdir test does *not* prove the
-migration: under an editable install `Path(__file__).parents[3]` still resolves
-into the checkout, so such a test passes against the pre-migration code.
-`tests/test_packaging.py` instead asserts each default resource resolves inside
-`Path(hotwell.__file__).parent`, which the old paths cannot satisfy, and the
-release was additionally validated by installing a built wheel into a throwaway
-venv and running a canonical scenario from a bare directory.
+This file is the current state. History lives elsewhere:
+- `CHANGELOG.md` lists every change per milestone (M0–M7) and starts with upgrade notes.
+- `progress-*.md` holds per-commit logs with verbatim evidence and rejected alternatives.
+- Earlier HANDOFFs are in git: `git show v0.3.0:HANDOFF.md`, and the 0.4.0
+  milestone-by-milestone diary at `git show 3e381c3:HANDOFF.md`.
 
 ## Status summary
 
-**M4 complete** (on Alan's explicit go-ahead, 2026-07-26; D5/D15 ratified). The
-AstromBellDrum (Astrom & Bell, Automatica 36 (2000), fourth-order) is selectable via
-`drum.model: astrom_bell`; **T9 is un-skipped and passes** (swell +5.9 mm on a +6 MW
-steam-demand step; two-state contrast case confirms monotone). Three-element feedwater
-(steam-flow feedforward + feed-flow trim) is behind `control.drum_level.three_element`.
-Comparison plot: `scripts/compare_drums.py` → `out/drum_comparison_load_step.png`.
-The phase-1 canonical scenarios and their acceptance tests still run on the two_state
-default and all pass unchanged.
+All 0.4.0 milestones are complete: M0, M1, M2, M3, M4, M4b, M5, M5b, M6, M7.
+
+- **One physics change (M2):** turbine work depends on drum and condenser pressure, and
+  there is a low-vacuum trip. Every 0.3.0 trajectory, hash and session log stops
+  reproducing.
+- **One control retune (M4b):** the AB drum + three-element level trim. AB + 3E
+  hashes changed again; two_state + 1E did not.
+- **Everything else is hash-neutral at defaults:**
+  - named rng streams;
+  - sensor noise and sensor fault kinds;
+  - load ramps and load noise;
+  - hidden plant faults;
+  - makeup system;
+  - procedures and the background operator;
+  - action recorder;
+  - manual.
+
+  M5b grew the observation contract: 4 instruments appended, so the observation
+  goldens were re-pinned while the state goldens stayed unchanged.
+
+Consumers:
+- **hotwell-panel** is still pinned to `v0.3.0` (GitHub tag) and has not been migrated.
+  The list is under "Notes for the panel phase".
+- **hotwell-bench** (private, not created on GitHub) has a draft plan,
+  `../hotwell-bench/PLAN-bench-0.1.md`, awaiting answers to B-Q1…B-Q8.
 
 ## How to run
 
 ```bash
 uv venv .venv && uv pip install -e '.[dev]'
-.venv/bin/python -m pytest            # all tests
-.venv/bin/python -m ruff check .      # lint
-.venv/bin/python scripts/gen_steam_props.py   # regenerate property fits
+.venv/bin/python -m pytest                 # default gate (excludes the slow set)
+.venv/bin/python -m pytest -m slow -s      # 24-h quiet days, ring-downs, M5b G2
+.venv/bin/python -m ruff check .
+.venv/bin/python scripts/gen_manual.py --check   # manual's generated blocks are current
 ```
 
-Note: the system Python's matplotlib is broken against numpy 2.x on this machine — always
-use the project venv.
+| Script | Produces |
+|---|---|
+| `scripts/steady_state.py` | design-point table + turbine sensitivities |
+| `scripts/run_scenario.py <name> --events [--fidelity two_state_1e\|astrom_bell_3e] [--csv] [--plots DIR]` | casualty timelines, audits |
+| `scripts/golden_hashes.py [SRC]` | the six golden runs, computed independently |
+| `scripts/quiet_day.py [--fidelity …] [--operator closed-loop\|fixed] [--seed N]` | 24-h acceptance day |
+| `scripts/fault_detectability.py [--fidelity …] [--workers N]` | oracle-twin detectability sweep |
+| `scripts/level_mode_ringdown.py` | AB + 3E slow level-mode ring-down (M4b) |
+| `scripts/gen_manual.py [--check]` | manual GENERATED blocks |
+| `scripts/gen_steam_props.py`, `scripts/audit_steam_props.py` | property fits; IAPWS-97 audit (optional `iapws`) |
+
+Use the project venv. The system Python's matplotlib is broken against numpy 2.x on
+this machine.
 
 ## Test results
 
-| Test | Status | Evidence |
+Release run, 2026-11-07, on `release-0.4` with the version bump applied:
+
+- Default gate: `182 passed, 6 deselected in 181.83s (0:03:01)`.
+- Slow set (`pytest -m slow`): `6 passed, 182 deselected in 1094.28s (0:18:14)`.
+  AB ring-down ζ 0.4386, late/first 0.014; two_state + 3E ring-down ζ 0.4840, late/first 0.017.
+- ruff clean; `gen_manual.py --check` exit 0.
+
+Evidence below is the tests' own printout (`pytest -s`) from that run unless noted.
+
+| Test | Status | Evidence (0.4.0) |
 |---|---|---|
-| T1 property anchors | **pass** | Tsat(8 MPa) = 295.06 degC, Tsat(0.15 MPa) = 111.37 degC, h_g(8 MPa) = 2758.1 kJ/kg |
-| T2 steady state | **pass** | scaled ‖ydot‖_max = 2.1e-8 1/s at init (gate 1e-7); worst 600 s drift < 0.001% of span; zero alarms |
-| T3 mass audit | **pass** | drift −0.000000% of 27.81 t inventory over 600 s |
-| T4 energy audit | **pass** | residual −0.0000 MW = −0.0000% of firing |
-| T5 determinism | **pass** | two `cp1_trip_recovered` runs, identical SHA-256 state-history hashes |
-| T10 sensor fault | **pass** | +50 mm bias → true level driven low (underfeed); −350 mm bias → MFT on sensed LOLO with truth normal; first-out = DRUM_LVL_LOLO |
-| T12 action validation | **pass** | running-pump start, manual-cmd-in-auto, unknown key, out-of-bounds all rejected-and-recorded with reasons; no raise |
-| T6 droop | **pass** | Δf −0.2700 Hz vs analytic −0.2777 Hz on measured ΔP_e = 5.553 MW → 97.2% (gate ±5%); no alarms |
-| T7 casualty (unrecovered) | **pass** | MFT via DRUM_LVL_LOLO; first protective trip FP1_SUCTION at +92.65 s (window 45–120 s); first-out = CP1_TRIP:overload |
-| T8 casualty (recovered) | **pass** | zero trips; worst FP NPSH margin 2.30 m; levels re-established well inside +300 s (band by +78 s) |
-| T9 inverse response | **pass** (M4) | AB drum swell +5.9 mm on +6 MW demand step; two-state contrast −0.0 mm (monotone) |
-| T11 performance | **pass** | 1 h simulated in 21.4 s wall (169× real time; budget 60 s — see D19 for why this doubled in M4) |
+| T1 property anchors | pass | Tsat(8 MPa) 295.06 °C, Tsat(0.15 MPa) 111.37 °C, h_g(8 MPa) 2758.1 kJ/kg |
+| T2 steady state | pass | scaled ‖ẏ‖_max 2.910e-16 1/s at init. Worst 600 s drift 0.0283 % of span (`drum.U`; gate 1 %). See Known issues: 0.0000 % at 0.2.0, 0.0266 % at 0.3.0 |
+| T3 mass audit | pass | −0.000000 % of 27.81 t over 600 s |
+| T4 energy audit | pass | residual −0.0023 MW = −0.0012 % of firing |
+| T5 determinism | pass | six golden runs reproduce state + observation hashes and step counts (`tests/test_golden_hashes.py`) |
+| T6 droop | pass | ΔP_e 6.362 MW; Δf −0.3200 Hz vs analytic −0.3181 Hz → 100.6 % (gate ±5 %) |
+| T7 casualty (unrecovered) | pass | FP1_SUCTION at +92.90 s (window 45–120 s); MFT via DRUM_LVL_LOLO; first-out CP1_TRIP:overload |
+| T8 casualty (recovered) | pass | zero trips; levels at +300 s: drum +1.0 mm, DA +0.002 m, HW −0.003 m |
+| T9 inverse response | pass | AB swell +6.1 mm on the load step; two_state −0.0 mm (monotone) |
+| T10 sensor fault | pass | bias → underfeed; −350 mm bias → MFT on sensed LOLO with truth normal |
+| T11 performance | pass | 1 h simulated in 15.9 s wall (227× real time; budget 60 s) |
+| T12 action validation | pass | rejections recorded with reasons, no raise |
 
-Suite: `37 passed` (no skips; ~52 s); ruff clean. M4 additions: AB steady hold
-(residual 7.5e-16, 300 s drift 0.0000%, audits exact on the 51.5 t AB inventory),
-design-point consistency, three-element behavior (load-step level peak 16.4 mm
-single-element → 6.2 mm three-element on the two-state drum).
-
-Property fit accuracy (max relative error vs source points, limit 0.5%): worst 0.051 %
-(v_f(T)); all others ≤ 0.041 %. Full per-function report in the generated module
-docstring.
+0.4.0 gates (all in the default gate unless marked slow):
+- golden hashes (M0);
+- rng stream pins plus the numpy-version gate (M1);
+- turbine/Clapeyron consistency and COND_P_HIHI (M2);
+- sensor pipeline statistics and I2 through a feed-pump trip (M3);
+- load ramps, load noise and the droop ratio (M4);
+- quiet days and the AB/two_state ring-downs (M4/M4b, slow);
+- fault signatures, audit closure and zero-magnitude identity (M5);
+- makeup gates G1–G7 (M5b; G2 slow);
+- procedures, runner and recorder replay identity (M6);
+- manual sync, seven checks (M7);
+- `__version__` equals the installed metadata (release).
 
 ## Achieved casualty timings vs targets
 
-(0.3.0 values. For 0.4.0 M2 re-measurements see the 0.4.0 section at the top.)
+`scripts/run_scenario.py cp1_trip_unrecovered --events --fidelity <f>` (CP-1 overload
+trip at t = 300 s). First activation, seconds after the trip:
 
-`cp1_trip_unrecovered` (CP-1 overload trip at t = 300 s), full annunciator sequence:
+| Event | two_state + 1E | AB + 3E | Target |
+|---|---|---|---|
+| DRUM_P_HI (pegging demand lost; clears) | +19.30 | +90.45 | — |
+| DA_LO | +23.15 | +21.85 | — |
+| HOTWELL_HI | +57.35 | +57.20 | — |
+| **FP1_SUCTION trip** | **+92.90** | **+78.20** | **45–120 s** ✓ |
+| DRUM_LVL_HI | — | +89.30 | — |
+| SAFETY_VALVE (lifts; cycles in two_state) | +98.15 | +99.10 | believable (D16) |
+| DRUM_LVL_HIHI → turbine trip | — | +100.55 | — |
+| FREQ_HI | — | +102.60 | — |
+| DRUM_LVL_LO | +112.70 | +202.90 | — |
+| **DRUM_LVL_LOLO → MFT → plant dead** | **+127.50** | **+223.40** | required ✓ |
 
-(Re-measured under 0.3.0 station-service loads, 2026-08-29 —
-`python scripts/run_scenario.py cp1_trip_unrecovered --events`. Every event
-moved ≤ 0.2 s from the 0.2.0 table; the sequence and first-out are identical.)
+- First-out, two_state: CP1_TRIP:overload → FP1_SUCTION → FP1_TRIP:FP1_SUCTION →
+  DRUM_LVL_LOLO.
+- First-out, AB: the same, with DRUM_LVL_HIHI before LOLO.
+- Safety-valve relief: 916.2 kg (two_state), 11 391.0 kg (AB).
+- The dead plant's end-of-run energy residual (−28.49 % / +99.97 %) is the known
+  transient behaviour of a steady-state diagnostic, not an audit failure.
+- Phase-1 analysis, not re-derived for 0.4.0: the DA buffer consumes most (≈85 s at
+  0.1.0) of the time to first trip, as the phase-1 plan intended.
 
-| t rel. CP-1 trip | Event | Target |
-|---|---|---|
-| +19.6 s | DRUM_P_HI alarm (pegging-steam demand lost, transient; clears ~+42 s) | — |
-| +23.2 s | DA_LO alarm (DA draining) | — |
-| +57.3 s | HOTWELL_HI alarm (condensate backing up) | — |
-| **+92.8 s** | **FP1_SUCTION trip** (NPSH margin < 0.5 m sustained 5 s) | **45–120 s** ✓ |
-| +98.0 s | SAFETY_VALVE lifts (feed lost at full steam draw; cycles ~5×) | believable (see D16) |
-| +112.5 s | DRUM_LVL_LO alarm | — |
-| **+127.3 s** | **DRUM_LVL_LOLO → MFT + turbine trip → bus dead → plant_dead** | required ✓ |
+`cp1_trip_recovered` (CP-2 started +12 s): zero alarm transitions in both fidelities.
+Mass drift 0.0000 %. Energy residual +0.024 % (two_state) / −0.004 % (AB) of firing.
 
-The DA buffer consumes ≈85 of the 92.8 s to first trip, as the plan intends.
-First-out: CP1_TRIP:overload → FP1_SUCTION → FP1_TRIP:FP1_SUCTION → DRUM_LVL_LOLO.
-
-`cp1_trip_recovered` (CP-2 started +12 s): worst FP NPSH margin 2.3 m over the
-whole run (trip at 0.5 m — comfortable no-trip margin; min of the
-`fp*_npsh_margin` columns in `run_scenario.py cp1_trip_recovered --csv`),
-zero alarms, levels at +300 s after the standby start: drum +1.0 mm,
-DA +0.002 m, HW −0.003 m (`test_t8_recovered` print; limit ±50/±100 mm).
-
-`load_step` (+6 MW on non-vital at t = 300 s, 0.3.0 figures from
-`run_scenario.py load_step --csv` extrema): f settles 60.000 → 59.690 Hz;
-minimum transient 59.32 Hz held under FREQ_LO's 2 s delay, so still no
-annunciation (`--events` prints zero transitions); drum pressure dips to
-7.63 MPa (alarm at 7.2); drum level max excursion −19 mm.
+`load_step`: zero alarm transitions in both fidelities. Δf and swell are in T6/T9 above.
+**The step is +6.83 MW, not the +6 MW its comment says** (Known issues).
 
 ## Reference design point, achieved values
 
-(Unchanged in 0.4.0 M2 to the printed digit; M2 adds the turbine rows above.)
-
-`scripts/steady_state.py` regenerates this table (60 MW commanded):
+`scripts/steady_state.py` (60 MW commanded). Unchanged by 0.4.0 to the printed digit:
 
 | Quantity | Plan | Achieved | Note |
 |---|---|---|---|
 | Electrical output | 60 MW | 60.000 MW | |
-| Drum pressure | 8.0 MPa | 8.0000 MPa | Tsat 295.06 degC |
+| Drum pressure | 8.0 MPa | 8.0000 MPa | Tsat 295.06 °C |
 | Turbine steam flow | ≈77 kg/s | 76.923 kg/s | |
-| Pegging (aux) steam | — | 10.198 kg/s | see decision D5 |
+| Pegging (aux) steam | — | 10.198 kg/s | D5 |
 | Feedwater flow | — | 87.121 kg/s | = steam + pegging |
-| Firing heat (effective) | ≈180 MW | **199.59 MW** | plan's table formula omits DA heating; see D5 |
-| Condenser duty | — | 139.59 MW | 7.000 kPa at rated |
-| Energy closure | <2% | 0.0000% | |
-| Throttle / fw valve / firing / LCV | — | 0.850 / 0.553 / 0.801 / 0.600 | |
-| NPSH margin FP1 / CP1 | — | 2.70 m / 1.00 m | |
-| Total water inventory | — | 27.81 t | incl. 2 t piping holdup |
+| Firing heat (effective) | ≈180 MW | **199.593 MW** | plan's formula omits DA heating; D5 |
+| Condenser duty | — | 139.593 MW | 7.000 kPa at rated |
+| Energy closure | <2 % | 0.0000 % | |
+| fw valve / throttle / firing / DA LCV | — | 0.5528 / 0.8500 / 0.8009 / 0.5999 | |
+| NPSH margin FP1 / CP1 | — | 2.70 m / 1.00 m | CP trip at 0.25 m (M5b) |
+| Total water inventory | — | 27.81 t | two_state; AB 51.5 t |
 
-Sizing-rule compliance (achieved):
-- DA working inventory (normal level 2.5 m to NPSH-trip level ≈0.08 m): ≈6.9 t ≈ **79 s**
-  of rated feed flow (rule ≥60 s).
-- Hotwell working inventory (nominal to ±0.5 m band edge): ≈4.0 t ≈ **52 s** of rated
-  condensate flow (rule ≥45 s).
-- Drum liquid, NWL to −300 mm (LOLO): 0.3 m × 16 m² × 722.6 kg/m³ ≈ 3.47 t ≈ **45 s** of
-  rated steam flow with feed lost (rule 25–60 s).
+| Turbine (M2) | Value |
+|---|---|
+| eta_t (derived) | 0.799126 |
+| w at design (8.0000 MPa → 7.0000 kPa) | 780.000 kJ/kg |
+| ∂w/∂p_cond | −11.026 J/kg/Pa = **−1.414 %/kPa** = −4.787 %/inHg |
+| ∂w/∂p_drum | +4918.579 J/kg/MPa = +0.631 %/MPa |
+
+Sizing-rule compliance (phase 1, unchanged): DA working inventory ≈6.9 t ≈ 79 s of
+rated feed (rule ≥60 s). Hotwell ±0.5 m band ≈4.0 t ≈ 52 s of condensate (rule
+≥45 s). Drum NWL to LOLO ≈3.47 t ≈ 45 s of steam with feed lost (rule 25–60 s).
 
 ## Parameter / tuning decisions and rationale
 
-- **Control gains** (`src/hotwell/data/baseline.yaml`, `control:` section) — one line each:
-  - Drum level PI kp=3.0, ki=0.05 (Ti=60 s): valve-to-level plant is an integrator
-    (~0.013 (m/s)/valve-unit); gives ~20 s closed-loop TC, no oscillation at 20 Hz.
-  - Drum pressure PI kp=1.8e-7 1/Pa, ki=3e-9 (Ti=60 s): drum energy storage ≈534 J/Pa;
-    kp gives ~12 s closed-loop TC on pressure (retuned in M3 — see below).
-  - DA level PI kp=1.5, ki=0.025: same integrator logic on the 3 m² DA waterplane.
-  - Governor: pure droop R=0.05, no integrator (plan-mandated); x_cmd scaled by
-    x_rated=0.85 so load_ref = P_rated at f0 commands exactly rated flow (see D6).
-- **k_t = P_rated/(x_rated·w_spec·p_drum) = 1.131222e-5 kg/(s·Pa)** — makes droop law,
-  rated flow, and rated power exactly consistent (no t=0 command jump).
-- **Firing ceiling** q_fuel_max=280 MW, eta_comb=0.89 (249.2 MW effective): leaves
-  headroom for the feed-loss transient (drum needs ~212 MW to hold pressure with no
-  feedwater enthalpy credit).
-- **FP NPSH_req deliberately flat** (a=9.8 m, b=59.6): with a saturated DA, available
-  NPSH is purely static + level − friction, so the curve constant dominates; sized so
-  DA drain-down crosses the 0.5 m trip margin ≈95 s after a condensate loss (target
-  window 45–120 s), just before the tank runs dry.
-- **Pump curves**: shutoff = 1.25 × the pump's own rated head per plan. CP: 50 m
-  shutoff / 40.2 m at service flow. FP: 1117 m shutoff / 962 m at service flow, with
-  the pump's own rated point at 0.110 m³/s — 20% flow margin over the 0.0916 m³/s
-  service point. The margin is load-bearing: the first FP sizing (1128/902 m, steeper
-  K = 26934) starved the drum during the +10% load step with the FRV wide open
-  (capacity ceiling ≈93.5 kg/s vs ≈95.8 needed) — drum level walked down ~0.15 mm/s
-  with fw_valve.x saturated at 1.0. Found by probing load_step before writing T6.
-- **FRV Cv = 0.1495** (x ≈ 0.55 at rated, ≈120 kg/s capacity wide-open with the flat
-  pump); LCV Cv = 0.38295 (x ≈ 0.60 at rated).
-- **Drum pressure PI retuned during M3** (kp 7e-8 → 1.8e-7 1/Pa, ~12 s closed-loop):
-  at the original tuning, losing the 10.2 kg/s pegging draw on a CP trip drove drum
-  pressure through the safety valve 21 s into the casualty. A boiler master that
-  lifts safeties on a 12% demand loss is not believable; the tighter loop caps the
-  excursion at 8.47 MPa (DRUM_P_HI alarm only, transient).
+All values are in `src/hotwell/data/baseline.yaml` unless noted.
 
-## Decisions taken under ask-vs-decide (M4: D17–D19 at the end)
+- **Drum level PI** kp 3.0, ki 0.05 (Ti 60 s): the valve-to-level plant is an
+  integrator; ~20 s closed loop.
+- **Three-element trim (AB default)** kp 30 kg/s/m, ki 0.075 (Ti 400 s), ±25 kg/s.
+  Retuned in M4b from kp 15 / ki 0.15. Stability criterion: Ti > κ·ρA ≈ 116 s
+  (D25).
+- **Drum pressure PI** kp 1.8e-7 1/Pa, ki 3e-9 (~12 s): tight enough that losing the
+  10.2 kg/s pegging draw on a CP trip peaks at DRUM_P_HI, not the safety valve.
+- **DA level PI** kp 1.5, ki 0.025.
+- **Hotwell level PI (M5b)** setpoint −0.15 m, kp 13, ki 0.044,
+  `anti_windup: conditional`, I = 0 at init (D26). It sits exactly closed in normal
+  operation.
+- **Governor** pure droop R = 0.05, x_cmd scaled by x_rated = 0.85 (D6).
+- **Turbine** `w_design` 780 kJ/kg; eta_t derived so w equals it at the design state
+  (D22). k_t = P_rated/(x_rated·w_design·p_drum) keeps droop, rated flow and rated
+  power consistent.
+- **Firing ceiling** q_fuel_max 280 MW, eta_comb 0.89.
+- **FP NPSH_req deliberately flat** (a 9.8 m, b 59.6), so DA drain-down crosses the
+  0.5 m trip ≈95 s after condensate loss.
+- **Pump curves** shutoff = 1.25 × own rated head. The FP has a 20 % flow margin over
+  service; that margin is load-bearing for the load step.
+- **Valves** FRV Cv 0.1495 (x ≈ 0.55 at rated); LCV Cv 0.38295 (x ≈ 0.60). Makeup
+  valve Cv is derived so wide open passes `makeup.capacity_design` 10 kg/s at design
+  vacuum.
+- **Makeup source (M5b)** CST at atmospheric, 30 °C, z 5.0 m, unlimited. Vacuum
+  drag-in Δp = p_atm + ρgz − p_cond.
+- **Protection additions** COND_P_HIHI 18 kPa / 5 s, latching → turbine trip (Q2).
+  CP1/CP2_SUCTION NPSH margin < 0.25 m / 5 s, latching → trip that pump.
+- **Procedure thresholds (M6)**:
+  - NOP-03 trim gain 20 MW/Hz (plant 21.5: monotone convergence), max step 2 MW,
+    settle 30 s, deadband 0.02 Hz.
+  - NOP-01 parallel-run floor condensate_flow > 20 kg/s, CP NPSH > 0.5 m (D32).
+
+## Decisions taken under ask-vs-decide
+
+D1–D19 are phase 1 (0.1.0); D20 onward are 0.4.0.
 
 - **D1 — property source**: typed-in standard steam-table points (Moran/Shapiro,
-  Cengel/Boles tabulations of IAPWS) rather than ad-hoc CoolProp at generation time —
-  no extra tooling, provenance fully visible in `scripts/gen_steam_props.py`. Internal
-  energies derived as u = h − p·v instead of transcribed (smaller transcription-error
-  surface); a test asserts u/h/v consistency of the independent fits (< 5e-4).
-- **D2 — two extra low-range fits beyond the plan's two families**: `hf_t(T)` and
-  `rho_f_t(T)` (saturated liquid enthalpy/density, 30–150 degC), plus the inverse
-  `tsat_lowp(p)`. Needed for condensate/deaerator enthalpies, pump densities and NPSH;
-  the plan's two families alone cannot supply them. Same source table, same 0.5% gate.
-- **D3 — temperatures in kelvin** throughout the API (plan lists K among SI units even
-  though prose quotes degC). Tests convert at the boundary.
-- **D4 — property fit derivative functions** (`dv_f_dp` etc.) emitted alongside the fits;
-  the two-state drum closure Newton needs an analytic Jacobian. Verified against central
-  finite differences (rel err < 1e-5) in tests.
-- **D5 — DA pegging steam (energy-closure requirement).** The plan's reference table
-  computes firing as ṁ_s·(h_g − h_fw) with ṁ_s = turbine flow, but heating condensate
-  (163 kJ/kg at 7 kPa) to feedwater enthalpy (467 kJ/kg at 0.15 MPa saturation) needs
-  ≈23.4 MW that the table does not source; without it the T4 energy audit fails by ~13%
-  of firing. Standard practice (and the physical mechanism that holds a DA at pressure)
-  is auxiliary/pegging steam from the drum: m_peg = m_cond·(h_fw − h_c)/(h_g − h_fw),
-  computed algebraically at the DA inlet. Consequences: feed flow = turbine flow +
-  pegging (87.1 kg/s), firing at rated = 199.6 MW (not ≈180), energy audit closes to
-  ~1e-6. The reference table's 60 MW / 77 kg/s / 8 MPa / 7 kPa anchors are unchanged.
-  Alternative rejected: declaring the DA heating as an unmodeled audit input — closes
-  the books without physics and hides a real steam draw from the drum.
-- **D6 — droop law scaled by x_rated.** The plan's droop law (x_cmd = load_ref/P_rated −
-  (1/R)Δf/f0) reaches x=1.0 at rated load_ref, while k_t is calibrated for rated flow at
-  x=0.85 — the two conflict. Resolved by scaling the per-unit power command onto the
-  valve: x_cmd = x_rated·(load_ref/P_rated − (1/R)·Δf/f0). Effective droop gain is
-  preserved exactly (dP_m/dδ = −P_rated/R), and rated load at f0 sits at exactly 60 Hz.
-- **D7 — steady-state root formulation.** The three actuator rows of the derivative are
-  degenerate at equilibrium (command := position), and the hotwell mass-balance row is
-  linearly dependent with the DA's (both pin the same condensate flow). Replaced by
-  loop-equilibrium conditions (drum p/level, DA level, ω = ω0) plus hotwell LEVEL =
-  nominal. 14 unknowns (13 states + LCV position) / 14 residuals, scipy hybr, warm
-  analytic guess; converges to ‖ydot‖ ~ 5e-16.
-- **D8 — hotwell/DA thermal model**: both are fixed-temperature saturated reservoirs
-  (Tsat at p_cond / p_da); no liquid energy states. Consistent with the plan's mass-only
-  inventories (§4.1) and the fixed-p_da simplification.
-- **D9 — chest holdup in the mass audit**: the chest lag stores exactly
-  k_t·τ_ch·p_chest kg (≈31 kg at rated); counted in total inventory so the mass audit
-  closes exactly, not just approximately.
-- **D11 — sensing runs immediately before the event layer.** Plan section 3.2 lists
-  "event layer" (step 4) before "sensors sample" (step 5), but protection must consume
-  sensed values (locked decision, section 1). Internally the sensing pipeline therefore
-  runs once right after RK4 and feeds both the protection evaluation and the returned
-  observation; the observable ordering (discrete transitions settle before the
-  historian records) is preserved.
-- **D12 — trip slams are instantaneous position jumps.** MFT sets firing.x = 0 and a
-  turbine trip sets throttle.x = 0 directly in the event layer, bypassing the actuator
-  lags — modeling the separate fuel-trip/stop valves real plants have. While the latch
-  is in, the corresponding controller command is forced to 0.
-- **D13 — `set_load` scenario event type added.** Section 9's event-type list has no way
-  to express its own first canonical scenario (the +10% non-vital load step); `set_load`
-  sets a load block's P0 demand. Minimal, deterministic extension.
-- **D15 — T6 evaluated against measured ΔP_e, not the commanded step.** On an islanded
-  bus with load frequency dependence (k_pf = 1.5), a commanded +6 MW block step settles
-  to ΔP_e = 5.553 MW; the droop law ties frequency to actual power, so Δf = −R·ΔP_e/
-  P_rated·f0 is the honest analytic (97.2% match). Against the commanded 6 MW the same
-  run reads 90.0% — outside the 5% gate for reasons that are physics, not error.
-- **D16 — post-feed-loss safety-valve lift accepted as believable.** ~5 s after the FP
-  trips (full steam draw, zero feed), drum pressure spikes: feedwater is the boiler's
-  heat sink, and holding 8 MPa with no feed needs firing to run BACK ~80 MW faster
-  than the 12 s pressure loop can act. The SV cycles ~5× between 8.6/8.3 MPa until
-  the LOLO MFT kills firing — textbook loss-of-feedwater behavior; relief mass is
-  audited. Alternative rejected: adding a loss-of-feed MFT (not in the plan's
-  protection table; would also shortcut the drum-level LOLO story the plan asks for).
-- **D14 — trips.reset semantics.** Reset clears engine latches whose condition has
-  cleared, then recomputes MFT/turbine-trip flags from remaining latches; the generator
-  breaker recloses if the turbine trip cleared, and tripped pumps drop to `stopped`
-  (restartable) unless a pump-trip latch remains. Scenario-injected pump trips carry no
-  engine latch and always clear to `stopped` on reset. Not exercised by the canonical
-  scenarios; unit-level behavior only in phase 1.
-- **D17 — AstromBellDrum parameter provenance and scaling.** Equation set transcribed
-  from the paper directly (eq. 24 with all e-coefficients, eqs. 12/26 void fraction,
-  eq. 15 circulation, eqs. 19–20 level, section 4.8 equilibria) — fetched and read, not
-  reproduced from memory. Parameters: the paper's section 5.1 P16-G16 table (V_d 40,
-  V_r 37, V_dc 11 m³, A_d 20 m², m_t 300 t, m_r 160 t, k 25, β 0.3, T_d 12 s), volumes/
-  areas/masses × **scale = 0.968** = our rated drum draw (87.12 kg/s) / the paper
-  plant's estimated full-load steam flow (~90 kg/s, from Fig 3's 180 MW heat-flow axis
-  at h_s − h_fw ≈ 2.0 MJ/kg with ~200 degC feed). Values the paper leaves implicit:
-  metal C_p = 550 J/(kg·K) (validated against Table 2's m_t·C_p·∂t_s/∂p ≈ 1410 J/Pa at
-  8.5 MPa, within 3%); drum metal m_d = 100 t (inferred: m_t − m_r = 140 t covers drum +
-  downcomers; its e42 term is small); A_dc = 0.2774 m² calibrated with the paper's k=25
-  so q_dc ≈ 1300 kg/s at our design point — giving riser-exit quality α_r = 0.108,
-  squarely in the paper's high-load range (Fig 7, ~0.1). V_sd0 = 19.14 m³ is *derived*
-  at construction from the section-4.8 V_sd equilibrium with V_sd,nom = 4.8 m³ (paper
-  Fig 4 shows ~5) — large because our feed is far more subcooled than the paper
-  plant's. Level reference = half-drum below-surface volume. A design-point test locks
-  these derivations.
-- **D18 — single-element level control is unstable with the AB drum + our cold feed.**
-  *(0.4.0 correction: the AB + three-element pairing chosen here was itself
-  unstable, ζ ≈ −0.02 at a ~1890 s period, which the 1800 s window below couldn't
-  show; the "aggressive trim" failure was Ti = 40 s < κρA ≈ 116 s. Retuned in
-  M4b; see the 0.4.0 section.)*
-  Cutting feed reduces in-drum condensation, so the sub-surface steam volume grows
-  (−0.166 m³ per sustained kg/s of feed) and level RISES — a positive feedback through
-  the level loop that ran load_step into DRUM_LVL_HIHI/turbine trip. The short-term
-  static gain from feed to level is inverted (~120 s break-even), so the M4 pairing is
-  AB + three-element feedwater with a deliberately SLOW trim (kp 15 kg/s/m, ki 0.15,
-  ±25 kg/s; an aggressive trim of kp 60/ki 1.5 was demonstrated unstable, peak 719 mm).
-  Result: load_step peak +65 mm, no alarms, converging (~+13 mm at t=1800). This is the
-  simulation reproducing WHY three-element control exists; the panel phase should treat
-  single-element + AB as an operator-visible degraded mode, not a default.
-- **D19 — path-flow solver must converge on step size, not residual.** The original
-  solve exited on a loose pressure-residual with warm-start-dependent iteration count;
-  outer finite differences (scipy hybr's Jacobian) then saw iteration noise instead of
-  smooth flow derivatives — found as a near-null fw-valve column stalling the AB
-  steady-state root at off-design loads. Now converges to |Δq| < 1e-13·q_hi. Cost:
-  T11 went from 11.0 → 21.4 s per simulated hour (still 2.8× inside budget); benefit:
-  steady-state residuals back to ~3e-16 for both drum models, and any future
-  gradient-based consumer (MPC, trim optimization) gets a smooth plant function.
-- **D10 — turbine trip = generator breaker opens = bus dead.** Single generator,
-  islanded, no station-service alternative is modeled, so a turbine trip deenergizes
-  both load blocks AND the pump motors (pumps trip on "bus_dead"). This is what makes
-  MFT + turbine trip terminate a casualty in `plant_dead` (M2 wires the pump-trip
-  cascade). Alternative rejected: keeping pumps energized after a turbine trip would
-  require a station-service/battery model the plan excludes.
+  Cengel/Boles tabulations of IAPWS) rather than ad-hoc CoolProp; internal energies
+  derived as u = h − p·v. 0.4.0 adds an optional IAPWS-97 audit
+  (`scripts/audit_steam_props.py`; M2 result: worst 0.074 %, the 0.3.0 psat table;
+  new M2 entries ≤ 0.025 %. Not re-run for the release: `iapws` is not installed in
+  this venv).
+- **D2 — extra low-range fits** `hf_t(T)`, `rho_f_t(T)`, inverse `tsat_lowp(p)`. M2
+  adds `s_f(p)`, `s_g(p)` (derived as s_f + h_fg/T, not typed), `sf_t(T)`, `hg_t(T)`.
+- **D3 — temperatures in kelvin** throughout the API.
+- **D4 — analytic property derivatives** emitted alongside the fits, FD-verified.
+- **D5 — DA pegging steam** closes the energy audit. Firing at rated is 199.6 MW, not
+  the reference table's ≈180 MW. Alternative rejected: an unmodelled audit input.
+- **D6 — droop law scaled by x_rated** so rated load at f0 sits at exactly 60 Hz.
+- **D7 — steady-state root formulation**: loop-equilibrium conditions replace the
+  degenerate actuator rows and the dependent hotwell row.
+- **D8 — hotwell/DA are fixed-temperature saturated reservoirs** (mass-only).
+- **D9 — chest holdup counted in the mass audit.**
+- **D10 — turbine trip = breaker opens = bus dead**: pumps trip on bus_dead.
+- **D11 — sensing runs right after RK4**, before the event layer, so protection consumes
+  sensed values.
+- **D12 — trip slams are instantaneous position jumps** (separate trip valves).
+- **D13 — `set_load` scenario event** (M4 adds `ramp_s`).
+- **D14 — `trips.reset` semantics**: clears latches whose condition cleared;
+  scenario-injected pump trips have no latch.
+- **D15 — T6 evaluated against measured ΔP_e**, not the commanded step.
+- **D16 — post-feed-loss safety-valve lift accepted as believable.** Alternative
+  rejected: a loss-of-feed MFT.
+- **D17 — AstromBellDrum parameter provenance**: Astrom & Bell (2000) eq. set and
+  P16-G16 parameters scaled by 0.968; implicit values documented in code and locked by
+  a design-point test.
+- **D18 — single-element level control is unstable with the AB drum + our cold feed**
+  (−0.166 m³ of sub-surface steam per sustained kg/s of feed; the level rises when
+  feed is cut). *0.4.0 correction:* the AB + three-element pairing chosen here was
+  itself unstable, ζ ≈ −0.02 at a ~1890 s period, which the 1800 s window could not
+  show. The "aggressive trim" failure (kp 60, ki 1.5) was Ti = 40 s < κρA, an
+  integral-time problem, not too much gain. Fixed by D25.
+- **D19 — the path-flow solver converges on step size** (|Δq| < 1e-13·q_hi), so outer
+  finite differences see a smooth plant function.
+- **D20 — two hashes (M0).**
+  - The state hash answers "is the physics unchanged".
+  - The observation hash answers "is the exported data unchanged". It covers sensed
+    values, indications and alarm states including ack (Alan's amendment).
+  - Quantization absorbs sub-LSB truth differences: a 1e-7 relative kp change moves
+    the state hash but not the observation hash.
+- **D21 — numpy is part of the determinism contract (M1).**
+  `test_pinned_raw_draws_numpy_version_gate` pins raw PCG64 and `normal()` draws under
+  numpy 2.5.1. Determinism scope: seed + scenario + platform + numpy version.
+- **D22 — turbine work (M2, Q1).**
+  - Definition: w = eta_t·Δh_s(p_drum → p_cond), saturated drum vapour into the wet
+    region. eta_t is derived, not typed.
+  - Size: −1.414 %/kPa at 7 kPa is the ideal isentropic slope (∂h/∂p|_s = v),
+    checked against Clapeyron.
+  - It is steeper than large-unit rules of thumb because exhaust and leaving losses
+    are not modelled.
+  - The plan's −1.1 %/kPa was a 7→12.35 kPa chord.
+  - Config key `turbine.w_spec` → `w_design`, because it is no longer the work at
+    every state.
+- **D23 — fixed draws per step (I2, M3).** Every instrument draws one standard normal
+  from its stream every step, whatever its sigma, fault or plant state, so faulted and
+  fault-free twins share noise. Cost: +2 % wall with noise off.
+- **D24 — config path `loads.noise.<block>`** (plan said `loads.<block>.noise`) because
+  `loads:` is flat. OU deviation starts at 0, since a stationary start would be a
+  load step at t = 0⁺.
+- **D25 — AB + 3E trim retune (M4b).** Reduced model:
+  - L = M/ρA − κF, F = PI(−L), κ ≈ 8.6 mm per kg/s, ρA ≈ 13.5 t/m.
+  - Unstable iff Ti = kp/ki < κ·ρA ≈ 116 s; the old tuning had Ti 100 s.
+  - Predictions vs measurement (M4b runs of `scripts/level_mode_ringdown.py`, not
+    re-run for the release; the slow-set ring-down gates are): predicted ζ −0.028 at
+    a 1760 s period, measured
+    −0.022 … −0.028 at 1890 s. The predicted threshold at ki 0.15 was kp ≈ 17.3, and
+    the ring-down brackets it: kp 16.5 → ζ −0.010, kp 18.5 → +0.011.
+  - **Pegging-steam feedforward (approved first) was rejected on evidence**: feeding
+    the true pegging flow forward stayed unstable (ζ −0.023 … −0.031). A constant
+    offset cannot change a linear mode's stability.
+- **D26 — conditional anti-windup on the hotwell loop only (M5b, found by gate G1).**
+  Back-calculation absorbed −kp·e while the makeup valve sat closed during a CP
+  outage (I ≈ +8) and kicked the valve open with the level above setpoint. The default
+  stays `backcalc` for every other loop.
+- **D27 — M5b G2 gated on time means over 6000–11000 s** (spec deviation, recorded):
+  the loop hunts on the 1 mm level resolution (makeup 0.84–1.18 kg/s around 1.00), a
+  quantization limit cycle.
+- **D28 — procedure design (M6).**
+  - Step kinds do / hold / trim / ack_active; contingencies via goto.
+  - Fixed 5 s reaction by default, lognormal from the `operator` stream when
+    `reaction_sigma > 0`.
+  - `alarm.ack` one per tick, because there is one key per action dict.
+  - No casualty response.
+- **D29 — manual provenance cites `path::Symbol`, not `file:line` (M7).** Lines rot on
+  every edit; symbols are checked mechanically by the sync test.
+- **D30 — manual tables name protection actions in operator words** ("trip CP-1"),
+  because `trip_pump` is also a fault-event name, which the answer-key hygiene check
+  forbids.
+- **D31 — `hotwell.units` keeps pump currents in amperes** (the panel shows % rated).
+  The constants are otherwise copied from the panel's `displayunits.py`. There are two
+  copies until the panel migrates.
+- **D32 — absolute flow thresholds in procedures must hold at minimum load (M6).**
+  NOP-01's `condensate_flow > 50 kg/s` aborted a correct swap at the 36 MW trough
+  (47.2 kg/s). It is now a 20 kg/s floor; the DA level and CP NPSH margins carry the
+  real check.
 
 ## Known issues / rough edges
 
-- ~~Steady-state root residual ~2e-8 after the M3 feed-pump resize~~ — resolved by the
-  D19 solver-smoothness fix; back to ~3e-16.
-- CP NPSH margin at rated is 1.00 m (no protection entry exists for CP suction, per
-  plan table). If a hotwell-draining casualty is added later, consider a CP_SUCTION
-  table entry.
-- After MFT + turbine trip the drum closure sits near 8.3–8.4 MPa with everything
-  isolated (no heat loss modeled), so pressure stays high in the dead plant. Scenarios
-  end on plant_dead, so nothing consumes this state in phase 1.
-- Late-run `load_step` MW trace shows ±0.05 MW dither from quantized sensed frequency
-  through the droop law — honest sensor-resolution limit cycling, visible only when
-  zoomed.
+- **T2 steady-state drift since 0.3.0, not investigated.**
+  - Worst 600 s drift by version: 0.0000 % at 0.2.0 (`c88af5d`), 0.0266 % at 0.3.0,
+    0.0283 % at 0.4.0, against a 1 % gate. In all three the init residual is
+    2.910e-16 1/s.
+  - Ruled out: the 1 kW station-service fixed-point stop. Its +1.0e-4 kg/s flow
+    offset gives ≈0.06 kg over 600 s against the observed −1.0 kg of `drum.M`.
+  - The mechanism is unknown. The 0.4.0 plan §0 still quotes the stale
+    "< 0.001 % of span".
+- **`load_step` is a +6.83 MW step, not +6 MW, since 0.3.0.**
+  - Mechanism: init gives the blocks `load_mw − station_service` (non-vital 47.17 MW,
+    vital 11.79 MW), and the scenario sets an absolute non-vital `p0` of 54 MW.
+  - Stale descriptions: the scenario comment ("48 MW → 54 MW (+10 %)") and the
+    `test_m3_casualties.py` docstring ("~5.55 MW").
+  - Measured ΔP_e is 6.362 MW. T6 still passes because it uses measured ΔP_e (D15).
+  - Fixing the scenario changes two golden runs, so that is a decision for Alan.
+- **AB quiet day: hotwell peaks near +0.24 m after the ramp down to 36 MW** (≈1.9 t of
+  inventory leaves the drum). It is inside the ±0.5 m alarm band. Observed in M4b, not
+  investigated.
+- **Any PI that sits at a limit for long periods has the D26 exposure** under the
+  default back-calculation anti-windup.
+- **Governor and hotwell loops dither on sensor resolution**: ±0.05 MW from the 0.01 Hz
+  frequency LSB, and makeup 0.84–1.18 kg/s from the 1 mm level LSB. This is an honest
+  quantization limit cycle.
+- **Steady-state init station-service fixed point stops within 1 kW**, so the solved
+  state sits +1.0e-4 kg/s / +80 W off the exact design flow (0.3.0 as well).
+- **Not modelled** (also manual chapter 08):
+  - throttling loss across the governor valve;
+  - exhaust and leaving losses;
+  - blowdown;
+  - carryover;
+  - DA pressure dynamics;
+  - post-trip heat loss: the dead plant's drum sits near 8.3–8.4 MPa;
+  - cold startup.
+- **The `v0.3.0` tag's tree has no LICENSE file** (the MIT license commit came after
+  it). `v0.4.0` does.
 
 ## Questions for Alan
 
-None blocking. Two judgment calls to ratify (both documented, neither changes
-contracts): D5 (pegging steam; firing at rated is 199.6 MW, not the reference
-table's ≈180 MW) and D15 (T6 evaluated against measured ΔP_e).
+- `load_step` size: fix the scenario to a true +6 MW step (re-pins two goldens) or
+  re-document it as +6.83 MW?
+- T2 drift since 0.3.0: investigate now or leave recorded?
 
 ## Notes for the panel phase
 
-- The observation contract is `hotwell.sensors.OBSERVATION_SPEC` (22 instruments,
-  SI, with ranges/resolutions) plus `Observation.indications` (pump run/trip lights,
-  MFT/turbine-trip/breaker/SV flags — honest in phase 1) and `Observation.alarms`
-  (list of (id, clear|active|acknowledged) straight from the protection table ids).
-- The action surface is `hotwell.actions.ACTION_SCHEMA`; every key carries bounds and
-  a validity note. Rejections come back as recorded reasons — the panel can surface
-  them verbatim as operator feedback.
-- **Alarm transitions are not in the fired-action list.** `ProtectionEngine._fire`
-  emits a `FiredAction` only for non-`alarm` actions, so pure-alarm conditions
-  (DRUM_P_HI, DA_LO, HOTWELL_HI, DRUM_LVL_LO — most of the casualty cascade above)
-  produce nothing there, and `alarm_states()` returns only non-clear entries, so a
-  clear shows up as a *disappearance*. A consumer wanting activate/ack/clear edges
-  must diff `Observation.alarms` step over step; `scripts/run_scenario.py` has the
-  reference implementation (it builds the timeline strip that way).
-- **First-out entries are not all protection-table ids.** `record_external_trip`
-  appends free-form labels — `CP1_TRIP:overload`, `FP1_TRIP:FP1_SUCTION`,
-  `MANUAL_MFT` — and the canonical casualty's *initiator* is one of them. A panel
-  that only maps first-out onto annunciator windows will fail to show the initiating
-  event; it needs a separate first-out display path.
-- **Actions apply before scenario events within a step?** No — `step()` runs
-  `_apply_scenario_events()` first, then submitted actions. Anything replaying a
-  live session as a scenario must preserve that relative order for ticks that carry
-  both, or the replay diverges.
-- `src/hotwell/data/protection.yaml` ids are the annunciator window list; the timeline strip in
-  `run_scenario.py` is a preview of the annunciator history display.
-- Historian `query(signals, t0, t1, max_points)` is strip-chart-shaped; 20 Hz for the
-  trailing 10 min, 1 Hz beyond — matches a panel chart recorder well.
-- Frequency instrument range is 50–70 Hz so the 110% overspeed setpoint (66 Hz) is
-  observable — a 55–65 Hz gauge would have clamped below the trip point (found during
-  design; keep in mind when drawing gauge faces).
-- M4: `drum.model` and `control.drum_level.three_element` are config switches the
-  panel could expose as "plant fidelity" options; with the AB drum, single-element
-  level control is a realistic casualty-inducing configuration (D18) — potentially a
-  deliberate training scenario later, not a bug.
+The panel runs 0.3.0. Migrating to 0.4.0 is a separate panel task:
+
+- **Replays:** 0.3.0 session logs will not replay (M2 physics; M4b for AB). Re-measure
+  the casualty pins from the table above; the AB column is the panel default.
+- **Annunciator:** 22 windows (was 19): `COND_P_HIHI` (legend `COND PRESS / HIGH
+  HIGH`), `CP1_SUCTION`, `CP2_SUCTION`.
+- **Gauges:** +4 (`makeup_flow`, `makeup_valve_pos`, `cp1_npsh_margin`,
+  `cp2_npsh_margin`); `OBSERVATION_SPEC` is 26 instruments, appended.
+- **Mimic:** a makeup valve with a CST terminal.
+- **Controller stations:** a hotwell-level loop station (`loop.hotwell_level.mode`,
+  `makeup_valve.manual_cmd`).
+- **Adopt** `hotwell.units` (one conversion table) and `hotwell.recorder` (replaces
+  `sessionlog.py`).
+- **Pin:** bump the dependency pin to `@v0.4.0`. The README no longer suggests
+  `-e ../hotwell`.
+
+Standing contract notes from phase 1, all still true:
+- Alarm transitions are not in the fired-action list. Diff `Observation.alarms` step
+  over step, as `run_scenario.py` does.
+- First-out entries include free-form labels (`CP1_TRIP:overload`) that are not table
+  ids.
+- `step()` applies scenario events before submitted actions. `hotwell.recorder`
+  encodes that order.
+- Frequency range is 50–70 Hz so the 66 Hz overspeed is observable.
+- Historian `query()` is strip-chart-shaped (20 Hz trailing 10 min, 1 Hz beyond).
+- `drum.model` and `control.drum_level.three_element` are fidelity switches. AB +
+  single-element is a casualty-inducing configuration (D18).
+
+## Notes for the bench phase
+
+**Repo and pinning.**
+- hotwell-bench consumes `hotwell @ …@v0.4.0` plus an exact numpy pin (D21).
+- Released item sets record the hotwell commit, the numpy version and per-item state
+  and observation hashes.
+- hotwell is public; the bench's secrecy rests on held-out seeds and the answer key.
+
+**Stream IDs** (`hotwell.rng.STREAM_IDS`, append-only, pinned in `tests/test_rng.py`;
+`SeedSequence([seed, id])`):
+
+| Stream | ID |
+|---|---|
+| `sensor.<instrument>`, in `OBSERVATION_SPEC` order (drum_pressure … fp2_npsh_margin) | 1000–1021 |
+| `sensor.makeup_flow`, `sensor.makeup_valve_pos`, `sensor.cp1_npsh_margin`, `sensor.cp2_npsh_margin` | 1022–1025 |
+| `load.vital`, `load.nonvital` | 2000, 2001 |
+| `operator` (ProcedureRunner reaction delays) | 3000 |
+
+The bench should draw its own item parameters from its own seed tree, never from
+these.
+
+**What a dump may contain** (I5):
+- `Observation` values (26 instruments), indications, and alarms;
+- or historian signals minus `hotwell.historian.TRUTH_SIGNALS` = {`m_leak`, `m_peg`,
+  `m_relief`, `p_mech`, `q_fire`}.
+
+`INDICATION_SIGNALS` = {`alarm_count`, `breaker_closed`, `cp1_mode`, `cp2_mode`,
+`fp1_mode`, `fp2_mode`, `mft`, `nonvital_connected`, `plant_dead`, `safety_open`,
+`turbine_trip`}. Two quirks:
+- `safety_open` ≡ indication `safety_valve_open`;
+- `<pump>_mode` separates *starting* from *stopped*, which the lamps don't.
+
+Noise is a config (plant) property: set it through the config dict, not the scenario.
+
+**Fault catalog** (`hotwell.faults`, scenario events; factors exactly 1.0 = healthy):
+
+| Event | Targets | Parameter |
+|---|---|---|
+| `pump_degrade` | cp1 cp2 fp1 fp2 | head_factor |
+| `valve_degrade` | frv lcv makeup_valve | cv_factor |
+| `actuator_stuck` | fw_valve throttle firing da_lcv makeup_valve | optional t_end |
+| `actuator_slow` | fw_valve throttle firing | rate_factor |
+| `firing_degrade` | — | eta_factor |
+| `condenser_fouling` | — | slope_factor |
+| `tube_leak` | — | m_dot_design [kg/s] |
+
+All of these take an optional `ramp_s`. Sensor faults (`sensor_fault`) come in five
+kinds: `stuck`, `bias`, `drift` (`rate`, `max_bias`), `lag` (`tau_s`) and
+`noise_increase` (`factor`).
+
+**Detectability sweep** (`scripts/fault_detectability.py`, re-run for this release;
+every row reproduced the M5/M5b values):
+- Setup: constant 60 MW, the quiet-day noise preset, seed 42, step onset at 300 s,
+  1 h window.
+- Detected = the faulted − fault-free twin difference exceeds max(3σ, 2 LSB) for
+  10 consecutive 1 Hz samples.
+- It is an **optimistic oracle bound** (no model sees the twin) and covers steps only.
+  Ramped onsets are unswept.
+- Delay after onset, two_state + 1E | AB + 3E:
+
+```
+fault                       mag     2S+1E delay  first instr.     | AB+3E delay  first instr.
+pump_degrade fp1          0.995       6 s  fp1_current             |     2 s  fw_valve_pos
+pump_degrade fp1           0.99       1 s  feed_flow               |     2 s  fw_valve_pos
+pump_degrade fp1     0.98, 0.97       1 s  feed_flow               |     1 s  fp1_current
+pump_degrade cp1           0.99      27 s  da_lcv_pos              |    23 s  da_lcv_pos
+pump_degrade cp1     ≤ 0.98           1 s  condensate_flow         |     1 s  condensate_flow
+valve_degrade frv          0.99       n/d                          |     n/d
+valve_degrade frv          0.98      34 s  da_lcv_pos              |     2 s  fw_valve_pos
+valve_degrade frv          0.95       1 s  feed_flow               |     2 s  fw_valve_pos
+valve_degrade frv           0.9       1 s  feed_flow               |     1 s  fw_valve_pos
+valve_degrade lcv          0.99       n/d                          |     n/d
+valve_degrade lcv          0.98      27 s  da_lcv_pos              |    28 s  da_lcv_pos
+valve_degrade lcv    ≤ 0.95           1 s  condensate_flow         |     1 s  condensate_flow
+firing_degrade     0.998, 0.995       n/d                          |     n/d
+firing_degrade             0.99      15 s  drum_pressure           |    99 s  firing_rate
+firing_degrade             0.98       7 s  drum_pressure           |    21 s  fw_valve_pos
+condenser_fouling   1.05, 1.1         n/d                          |     n/d
+condenser_fouling  1.25, 1.5          1 s  cond_pressure           |     1 s  cond_pressure
+actuator_slow (fw_valve, throttle, firing; 0.5, 0.2, 0.05)  n/d    |     n/d
+actuator_stuck fw_valve             456 s  da_lcv_pos              |     4 s  fw_valve_pos
+actuator_stuck throttle               6 s  frequency               |     6 s  frequency
+actuator_stuck firing                26 s  drum_pressure           |   115 s  fw_valve_pos
+actuator_stuck da_lcv                32 s  da_lcv_pos              |    36 s  da_lcv_pos
+tube_leak                   0.1     524 s  hotwell_level           |   689 s  hotwell_level
+tube_leak                   0.3     192 s  hotwell_level           |   388 s  hotwell_level
+tube_leak                   1.0      40 s  fw_valve_pos            |   123 s  drum_level
+tube_leak                   3.0      13 s  fw_valve_pos            |    44 s  drum_level
+```
+
+(Rows with identical results are merged; the script prints one row per magnitude.)
+
+Readings for item design:
+1. **actuator_slow is undetectable at constant load** at every factor. It needs a
+   transient: a ramp or a background operation.
+2. **A stuck FRV takes 456 s under 1E but 4 s under 3E.** The 3E loop dithers the
+   valve on feed-flow noise, so a stuck valve shows as the dither stopping.
+3. A degraded pump is visible only while it runs: swapping off a degraded FP-1
+   restores the FRV position (0.5528 → 0.6519 → 0.5534; M5 test). Background swaps
+   are diagnostic.
+4. FP-1 head loss and FRV Cv loss both open the FRV. FP-1 current and a later swap
+   separate them, and only sometimes: a confusion pair.
+5. Many 1 s detections are the step transient itself.
+6. A small leak shows first as the hotwell trend; larger ones through the feed side.
+
+**Control instability as a fault class.** Ti = κ·ρA ≈ 116 s (D25) is a designable
+stability boundary for the AB + 3E trim. An injected mis-tune, or phase lag in the loop
+(a sensor `lag` on drum_level or feed_flow), should produce a growing ~30 min
+oscillation at a predictable rate against a stable baseline. Not built or swept.
+
+**Quiet-day statistics** (`scripts/quiet_day.py`, closed-loop operator, seed 42, release
+run):
+
+| | two_state + 1E | AB + 3E |
+|---|---|---|
+| result | PASS | PASS |
+| wall for 24 h | 393.0 s (220×) | 440.2 s (196×) |
+| trips / rejected actions | none / 0 | none / 0 |
+| mass audit drift | +0.00000 % | −0.00000 % |
+| alarm transitions | 0 | 0 |
+| makeup valve max command | 0.0 | 0.0 |
+| NOP-01 (CP swap) / NOP-02 (FP swap) | completed 06:00:05–06:03:36 / 18:00:35–18:04:07 | same |
+| sensed frequency [Hz] | 59.80 @ 18.02 h … 60.16 @ 3.50 h | 59.85 @ 10.82 h … 60.16 @ 3.50 h |
+| sensed drum level [mm] | −38 @ 18.05 h … +55 @ 18.02 h | −36 @ 10.39 h … +37 @ 3.25 h |
+| sensed drum pressure [MPa] | 7.56 @ 18.02 h … **8.38 @ 18.04 h** | 7.90 @ 10.32 h … 8.10 @ 3.14 h |
+| sensed DA level [m] | −0.128 … +0.126 (both at the FP swap) | −0.016 … +0.014 |
+| sensed hotwell level [m] | −0.048 … +0.038 | −0.020 … **+0.244 @ 4.24 h** |
+| sensed condenser pressure [kPa] | 6.10 @ 8.08 h … 7.25 @ 0.77 h | same |
+| sensed FP-1 NPSH margin min [m] | 2.55 | 2.55 |
+| sensed MW out | 34.6 … 61.1 | 34.6 … 61.1 |
+| state hash | `90b95ce5…` | `e05dc79d…` |
+
+What these extrema show (not captured in M6; first seen in this release run):
+- **In two_state + 1E the 18:00 feed-pump swap is the day's largest transient**:
+  drum pressure 7.56 → 8.38 MPa within ~1 min, against DRUM_P_HI at 8.40 MPa / 2 s.
+  That is a 2-LSB margin, so another seed may alarm during a routine swap. Under
+  AB + 3E the swap does not reach the day's extrema. Not investigated. The bench
+  plan proposes AB + 3E items.
+- **Clamped instruments read biased near their floor.** `makeup_flow` has σ 0.05 kg/s,
+  is clamped at 0 and has 0.1 kg/s resolution, so a true zero reads up to 0.2 kg/s. A
+  model may read that as makeup in use; it is noise.
+- NOP-03 completed 287/287 in both. Trims that needed moves: 116 (two_state) and 112
+  (AB) in the M6 run; this run's printout lists each trim but not the count.
+
+The noise preset (`QUIET_DAY_SENSOR_NOISE`, `QUIET_DAY_LOAD_NOISE`) is **provisional**:
+plausible orders of magnitude, not calibrated instrument data. The bench owns item
+noise levels.
+
+**The manual is an ablation knob** (with / without). Its abnormal procedures are
+symptom-based, and `test_manual_sync.py` forbids fault-event names in it.
+
+## Release history (summary; full detail in CHANGELOG)
+
+- **0.4.0 (2026-11-07)** — this document.
+- **0.3.0 (2026-08-29)** — station-service pump motor loads on the islanded bus.
+  Scenario `load_mw` stays the commanded gross output. Station service at 60 MW is
+  1040.7 kW. FP-2 start +0.33 MW on the meter; CP-2 start +23 kW, below the meter's
+  0.1 MW resolution.
+- **0.2.0 (2026-07-26)** — panel precursor, no physics change:
+  - manual trip actions `trips.manual_mft` / `trips.manual_turbine` (same code path
+    as protection);
+  - annunciator `label:` legends;
+  - package-data migration to `src/hotwell/data/`.
+
+  Testing note worth keeping: under an editable install a chdir test proves nothing,
+  so `tests/test_packaging.py` asserts that resources resolve inside the installed
+  package.
+- **0.1.0 (2026-07-26)** — phase 1:
+  - core simulator;
+  - AB drum and three-element control;
+  - T1–T12.

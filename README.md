@@ -17,7 +17,7 @@ library only: no server, no UI, no agent.
 hotwell is distributed from GitHub only (not PyPI). Pin a tag:
 
 ```bash
-pip install "hotwell @ git+https://github.com/CodeReclaimers/hotwell@v0.3.0"
+pip install "hotwell @ git+https://github.com/CodeReclaimers/hotwell@v0.4.0"
 ```
 
 ## Install (development)
