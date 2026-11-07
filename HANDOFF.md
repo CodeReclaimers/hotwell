@@ -339,6 +339,31 @@ answered there). Milestone status is in `.plan-checkpoint.md`.
   first as the hotwell trend; larger ones through the feed side.
   **For the panel's migration:** +4 gauges, 22 windows (CP-1/CP-2 SUCTION), a
   makeup valve with a CST terminal on the mimic, a hotwell-level loop station.
+- **M6 complete: procedures as data, the background operator, the action
+  recorder.** Four procedures (NOP-01..04) in `hotwell/data/procedures/`, the
+  single source for the runner and the manual's chapter 05.
+  `ProcedureRunner` is a closed-loop scripted operator (reaction delay before
+  every step, contingencies via goto, shift log, no casualty response).
+  `ActionRecorder` + `drive()`: every driven run reduces to one scenario that
+  replays bit-identically. Tested through a 14 000-step run with a same-tick
+  scenario-action / operator-action collision on the same key (the operator's
+  62 MW correctly wins), and through a YAML round trip. Hash-neutral (goldens
+  unchanged).
+  **Quiet day now runs closed loop by default** (`--operator closed-loop`:
+  NOP-03 every 300 s, CP swap at 06:00, FP swap at 18:00). Both fidelities
+  PASS: NOP-01 and NOP-02 completed, NOP-03 completed 287/287 (116 / 112 needed
+  moves), 0 alarms, makeup command 0.0, mass drift 0.00000 %. (The closed-loop
+  day's sensed extrema were not captured in this run's output; rerun
+  `scripts/quiet_day.py` to see them. The M4 extrema above are from
+  `--operator fixed`.)
+  **A procedure bug the 24 h day caught:** NOP-01's parallel-run check
+  `condensate_flow > 50 kg/s` was sized at rated and aborted a correct swap at
+  the 36 MW trough (47.2 kg/s). It is now a load-independent 20 kg/s floor.
+  The DA level and the CP NPSH margins carry the real check. **Absolute flow
+  thresholds in procedures must hold at minimum load.**
+  Design choices (ask-vs-decide): step kinds do/hold/trim/ack_active; trim gain
+  20 MW/Hz (plant 21.5: monotone convergence); `alarm.ack` one per tick (one
+  key per action dict); fixed 5 s reaction by default.
 
 ## 0.3.0 — station-service pump loads (2026-08-29)
 

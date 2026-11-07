@@ -1,0 +1,14 @@
+# 0.4.0 M6. Read and acknowledge every active (flashing) annunciator window,
+# one per action (the board takes one ACK per window).
+id: NOP-04
+title: Acknowledge active alarms
+purpose: >-
+  Acknowledge every flashing annunciator window after reading it. This does not
+  correct the condition; that is the alarm response procedure's job.
+params: {}
+applies_when: []
+steps:
+  - id: ack
+    text: Acknowledge each flashing window in turn.
+    ack_active: true
+contingencies: {}

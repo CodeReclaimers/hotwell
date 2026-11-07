@@ -32,6 +32,11 @@ def test_quiet_day(fidelity):
     # Gate on the makeup VALVE command (truth-side, exact), since the sensed
     # makeup_flow carries noise around zero.
     assert r.makeup_max_cmd == 0.0, r.makeup_max_cmd
+    # M6: the background operator ran the day: every procedure completed
+    ends = [(e.proc_id, e.outcome) for e in r.operator_log if e.step_id == "-"
+            and e.outcome not in ("started", "queued")]
+    assert ends and all(o == "completed" for _, o in ends), ends
+    assert ("NOP-01", "completed") in ends and ("NOP-02", "completed") in ends
 
 
 _rd_spec = importlib.util.spec_from_file_location(

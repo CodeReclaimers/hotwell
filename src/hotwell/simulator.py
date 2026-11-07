@@ -452,6 +452,20 @@ class Simulator:
                 break
         return obs
 
+    def loop_state(self) -> dict:
+        """Read-only controller state for consumers that act like an operator
+        (0.4.0 M6: the background-operator runner; the panel's frame.loops
+        carries the same information). Never truth: these are the controllers'
+        own settings and outputs."""
+        c = self.control
+        out: dict = {"load_ref_mw": c.load_ref / 1e6}
+        for name in ("drum_level", "drum_pressure", "da_level"):
+            pi = c.loop(name)
+            out[f"{name}.mode"] = pi.mode
+            out[f"{name}.setpoint"] = pi.sp
+            out[f"{name}.output"] = pi.output
+        return out
+
     @property
     def state_history_hash(self) -> str:
         """SHA-256 over every post-step state vector so far (T5)."""

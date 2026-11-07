@@ -1,0 +1,19 @@
+# 0.4.0 M6. Islanded plant: the load is whatever the customers draw; the
+# operator trims the governor load reference to bring frequency back to
+# 60.00 Hz after a load change. Gain 20 MW/Hz is just under the plant's
+# 21.5 MW/Hz (droop 5 % + load damping), so each move undershoots and the
+# trim converges without overshoot.
+id: NOP-03
+title: Frequency trim (governor load reference)
+purpose: >-
+  Restore bus frequency to 60.00 +- 0.02 Hz after a load change by moving the
+  governor load reference in steps of at most 2 MW.
+params: {}
+applies_when:
+  - {indication: breaker_closed, eq: true}
+steps:
+  - id: trim
+    text: Move the load reference toward 60.00 Hz, waiting 30 s between moves.
+    trim: {signal: frequency, target: 60.0, deadband: 0.02, key: governor.load_ref_mw,
+           base: load_ref_mw, gain: 20.0, max_step: 2.0, settle_s: 30.0, max_moves: 20}
+contingencies: {}

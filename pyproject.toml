@@ -26,7 +26,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 # Baseline config, protection table, and canonical scenarios ship inside the
 # package (0.2.0) so hotwell runs from any cwd with no repo checkout present.
-"hotwell.data" = ["*.yaml", "scenarios/*.yaml"]
+"hotwell.data" = ["*.yaml", "scenarios/*.yaml", "procedures/*.yaml"]  # procedures: 0.4.0 M6
 
 [tool.ruff]
 line-length = 100

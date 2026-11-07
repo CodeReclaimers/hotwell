@@ -17,7 +17,7 @@ from importlib.resources.abc import Traversable
 from pathlib import Path
 
 __all__ = ["Resource", "baseline_config_path", "protection_table_path",
-           "builtin_scenarios", "read_text"]
+           "builtin_scenarios", "builtin_procedures", "read_text"]
 
 #: Anything the loaders accept: a filesystem path or a packaged resource.
 Resource = str | Path | Traversable
@@ -36,6 +36,14 @@ def protection_table_path() -> Traversable:
 def builtin_scenarios() -> dict[str, Traversable]:
     """Canonical scenarios shipped with the package, keyed by scenario stem."""
     root = files(__name__) / "scenarios"
+    return {p.name[: -len(".yaml")]: p
+            for p in sorted(root.iterdir(), key=lambda p: p.name)
+            if p.name.endswith(".yaml")}
+
+
+def builtin_procedures() -> dict[str, Traversable]:
+    """Operating procedures shipped with the package (0.4.0 M6), keyed by stem."""
+    root = files(__name__) / "procedures"
     return {p.name[: -len(".yaml")]: p
             for p in sorted(root.iterdir(), key=lambda p: p.name)
             if p.name.endswith(".yaml")}

@@ -1,0 +1,63 @@
+# 0.4.0 M6. Rendered into the manual (M7) AND executed by the background
+# operator (hotwell.procedures.ProcedureRunner); one source for both.
+id: NOP-01
+title: Condensate pump swap ({from} running -> {to})
+purpose: >-
+  Transfer condensate duty from the running condensate pump to the standby
+  pump without interrupting flow to the deaerator.
+params: {from: cp1, to: cp2}
+applies_when:
+  - {indication: "{from}_running", eq: true}
+  - {indication: "{to}_running", eq: false}
+  - {indication: "{to}_tripped", eq: false}
+steps:
+  - id: start_standby
+    text: Start {to}. Confirm the run lamp and motor current.
+    do: {"{to}.start": true}
+    wait_for:
+      - {indication: "{to}_running", eq: true}
+      - {signal: "{to}_current", op: gt, value: 20.0}
+    within: 30.0
+    on_timeout: {goto: standby_failed}
+  - id: parallel_run
+    text: Run both pumps in parallel for one minute; confirm DA level and both pumps' suction margin.
+    hold: 60.0
+    check:
+      - {signal: da_level, op: gt, value: -0.3}
+      # A "pumps are delivering" floor, deliberately load-independent: 50 kg/s
+      # (sized at rated) aborted a correct swap at the 36 MW trough (47.2 kg/s).
+      - {signal: condensate_flow, op: gt, value: 20.0}
+      - {signal: "{to}_npsh_margin", op: gt, value: 0.5}
+      - {signal: "{from}_npsh_margin", op: gt, value: 0.5}
+    on_fail: {goto: stop_new_pump}
+  - id: stop_original
+    text: Stop {from}. Confirm the run lamp goes out.
+    do: {"{from}.stop": true}
+    wait_for:
+      - {indication: "{from}_running", eq: false}
+    within: 15.0
+    on_timeout: {goto: stop_failed}
+  - id: verify
+    text: Verify {to} alone holds condensate flow, DA level and hotwell level for two minutes.
+    hold: 120.0
+    check:
+      - {indication: "{to}_running", eq: true}
+      - {signal: da_level, op: gt, value: -0.3}
+      - {signal: hotwell_level, op: lt, value: 0.3}
+      - {signal: "{to}_npsh_margin", op: gt, value: 0.5}
+    on_fail: {goto: restore_original}
+contingencies:
+  standby_failed:
+    text: "{to} did not start. Leave {from} in service and report to the shift supervisor."
+    outcome: aborted
+  stop_new_pump:
+    text: Parallel run unsatisfactory. Stop {to}, leave {from} in service, and report.
+    do: {"{to}.stop": true}
+    outcome: aborted
+  stop_failed:
+    text: "{from} did not stop. Leave both pumps running and report."
+    outcome: aborted
+  restore_original:
+    text: "{to} alone is not holding. Restart {from} and report."
+    do: {"{from}.start": true}
+    outcome: aborted_restored

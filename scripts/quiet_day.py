@@ -4,13 +4,17 @@
 Usage:
     python scripts/quiet_day.py [--fidelity two_state_1e|astrom_bell_3e]
                                 [--seed N] [--until-h H] [--no-noise]
+                                [--operator closed-loop|fixed]
 
 Daily profile (gross MW, piecewise linear; every ramp is 60 min, so >= 20 min
 each): 60 MW to 03:00, ramp to 36 MW by 04:00, hold to 10:00, ramp to 60 MW by
-11:00, hold to 24:00. The profile moves the NON-VITAL block (vital held). The
-operator's frequency trims are a FIXED load-reference schedule:
-`governor.load_ref_mw` = profile MW every 10 s during ramps. Plan M6 replaces
-this with the closed-loop background operator.
+11:00, hold to 24:00. The profile moves the NON-VITAL block (vital held).
+
+Operator (0.4.0 M6, default `--operator closed-loop`): the background operator
+(hotwell.procedures.ProcedureRunner) runs NOP-03 (frequency trim) every 300 s,
+a condensate pump swap at 06:00 and a feed pump swap at 18:00 (OPERATOR_SCHEDULE).
+`--operator fixed` reproduces the M4 runs: `governor.load_ref_mw` = profile MW
+every 10 s during ramps, open loop, and no swaps.
 
 Noise preset (QUIET_DAY_SENSOR_NOISE / QUIET_DAY_LOAD_NOISE) is PROVISIONAL:
 plausible orders of magnitude chosen for this acceptance run, not calibrated
@@ -30,6 +34,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from hotwell.plant import load_config
+from hotwell.procedures import ProcedureRunner, load_procedures
 from hotwell.scenario import Scenario, ScenarioEvent
 from hotwell.simulator import Simulator
 
@@ -37,7 +42,13 @@ FIDELITIES = {"two_state_1e": ("two_state", False), "astrom_bell_3e": ("astrom_b
 
 #: (hour, gross MW) breakpoints, piecewise linear.
 PROFILE_H = [(0.0, 60.0), (3.0, 60.0), (4.0, 36.0), (10.0, 36.0), (11.0, 60.0), (24.0, 60.0)]
-TRIM_PERIOD_S = 10.0
+TRIM_PERIOD_S = 10.0   # --operator fixed only
+#: (t [s], procedure id, params) for --operator closed-loop
+OPERATOR_SCHEDULE = sorted(
+    [(t, "NOP-03", {}) for t in range(300, 86400, 300)]
+    + [(6 * 3600, "NOP-01", {"from": "cp1", "to": "cp2"}),
+       (18 * 3600, "NOP-02", {"from": "fp1", "to": "fp2"})],
+    key=lambda s: s[0])
 
 # sigma in instrument units; tau [s] (0 = white). Provisional (see docstring).
 QUIET_DAY_SENSOR_NOISE = {
@@ -94,9 +105,10 @@ def build_config(fidelity: str, noise: bool) -> dict:
     return cfg
 
 
-def build_scenario(nv0: float, seed: int, max_t: float) -> Scenario:
-    """Non-vital ramps per profile segment + the fixed load-reference schedule.
-    nv0 = the non-vital block's p0 after steady init at 60 MW [W]."""
+def build_scenario(nv0: float, seed: int, max_t: float, fixed_trims: bool = False) -> Scenario:
+    """Non-vital ramps per profile segment (+ the fixed load-reference schedule
+    when fixed_trims). nv0 = the non-vital block's p0 after steady init at
+    60 MW [W]."""
     events = []
     for (h0, m0), (h1, m1) in zip(PROFILE_H, PROFILE_H[1:], strict=False):
         if m1 == m0:
@@ -104,7 +116,8 @@ def build_scenario(nv0: float, seed: int, max_t: float) -> Scenario:
         t0, t1 = h0 * 3600.0, h1 * 3600.0
         events.append(ScenarioEvent(t0, "set_load", {
             "target": "nonvital", "p0": nv0 + (m1 - 60.0) * 1e6, "ramp_s": t1 - t0}))
-        for t in np.arange(t0 + TRIM_PERIOD_S, t1 + 0.5 * TRIM_PERIOD_S, TRIM_PERIOD_S):
+        for t in (np.arange(t0 + TRIM_PERIOD_S, t1 + 0.5 * TRIM_PERIOD_S, TRIM_PERIOD_S)
+                  if fixed_trims else ()):
             events.append(ScenarioEvent(float(t), "action", {
                 "command": {"governor.load_ref_mw": round(profile_mw(float(t)), 6)}}))
     events.sort(key=lambda e: e.t)
@@ -128,6 +141,8 @@ class QuietDayResult:
     state_hash: str = ""
     observation_hash: str = ""
     makeup_max_cmd: float = 0.0   # M5b G6: max makeup valve command over the day
+    operator: str = "closed-loop"
+    operator_log: list = field(default_factory=list)   # LogEntry list (closed-loop)
 
     @property
     def passed(self) -> bool:
@@ -136,13 +151,15 @@ class QuietDayResult:
 
 
 def run_quiet_day(fidelity: str = "two_state_1e", seed: int = 42, until_h: float = 24.0,
-                  noise: bool = True, progress: bool = True) -> QuietDayResult:
+                  noise: bool = True, progress: bool = True,
+                  operator: str = "closed-loop") -> QuietDayResult:
     cfg = build_config(fidelity, noise)
     probe = Simulator(cfg, seed=seed)
     probe.initialize_steady_state(60.0)
     nv0 = probe.plant.loads.nonvital.p0
     max_t = until_h * 3600.0
-    sc = build_scenario(nv0, seed, max_t)
+    fixed = operator == "fixed"
+    sc = build_scenario(nv0, seed, max_t, fixed_trims=fixed)
     sim = Simulator(build_config(fidelity, noise), scenario=sc)
     sim.initialize_steady_state(60.0)
     ext = {k: [np.inf, 0.0, -np.inf, 0.0] for k in WATCH}
@@ -151,8 +168,16 @@ def run_quiet_day(fidelity: str = "two_state_1e", seed: int = 42, until_h: float
     wall0 = time.perf_counter()
     next_report = 0.0
     mu_max = 0.0
+    runner = None if fixed else ProcedureRunner(load_procedures())
+    pending = [] if fixed else [s for s in OPERATOR_SCHEDULE if s[0] < max_t]
     while sim.t < max_t - 0.5 * sim.dt:
-        obs = sim.step()
+        actions = None
+        if runner is not None:
+            while pending and pending[0][0] <= sim.t + 1e-9:
+                _, pid, params = pending.pop(0)
+                runner.start(pid, params, sim.t)
+            actions = runner.tick(sim.last_obs, sim.loop_state(), sim.t) or None
+        obs = sim.step(actions)
         mu_max = max(mu_max, sim.commands.mu_x)
         v = obs.values
         for k in WATCH:
@@ -190,7 +215,8 @@ def run_quiet_day(fidelity: str = "two_state_1e", seed: int = 42, until_h: float
         mass_drift_frac=rep.mass_drift_frac,
         relief_kg=sim.audit_acc.relief_kg,
         state_hash=sim.state_history_hash, observation_hash=sim.observation_hash,
-        makeup_max_cmd=mu_max)
+        makeup_max_cmd=mu_max, operator=operator,
+        operator_log=list(runner.log) if runner is not None else [])
 
 
 def print_result(r: QuietDayResult) -> None:
@@ -209,6 +235,19 @@ def print_result(r: QuietDayResult) -> None:
     for t, aid, st in r.alarm_events:
         print(f"  t={t / 3600:7.4f} h ({t:9.2f} s)  {aid:14s} {st}  "
               f"[profile {profile_mw(t):.1f} MW]")
+    if r.operator_log:
+        from collections import Counter
+        ends = Counter((e.proc_id, e.outcome) for e in r.operator_log if e.step_id == "-")
+        moves = sum(1 for e in r.operator_log if e.step_id == "trim" and e.outcome == "done"
+                    and "after 0 moves" not in e.text)
+        print(f"operator ({r.operator}): procedure outcomes {dict(sorted(ends.items()))}; "
+              f"trims that needed moves {moves}")
+        for e in r.operator_log:
+            if e.proc_id in ("NOP-01", "NOP-02") or e.outcome not in ("started", "done",
+                                                                      "completed"):
+                print(f"  {e.t / 3600:7.4f} h  {e.proc_id} {e.step_id:15s} {e.outcome}")
+    else:
+        print(f"operator ({r.operator}): fixed load-reference schedule")
     print(f"state hash {r.state_hash}\nobs hash   {r.observation_hash}")
 
 
@@ -219,8 +258,9 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--until-h", type=float, default=24.0)
     ap.add_argument("--no-noise", action="store_true")
+    ap.add_argument("--operator", choices=("closed-loop", "fixed"), default="closed-loop")
     a = ap.parse_args()
-    r = run_quiet_day(a.fidelity, a.seed, a.until_h, noise=not a.no_noise)
+    r = run_quiet_day(a.fidelity, a.seed, a.until_h, noise=not a.no_noise, operator=a.operator)
     print_result(r)
     sys.exit(0 if r.passed else 1)
 

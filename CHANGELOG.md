@@ -49,7 +49,25 @@
 - `scripts/level_mode_ringdown.py`: ring-down / damping estimate of the slow
   drum-level mode under three-element control.
 
-### Added (M5b — hotwell makeup system + tube_leak; STATE-hash-neutral, observation contract grows)
+### Added (M6 — procedures and the background operator; hash-neutral)
+
+- `hotwell/data/procedures/*.yaml`: NOP-01 condensate pump swap, NOP-02 feed
+  pump swap (templated `{from}`/`{to}`, either direction), NOP-03 frequency
+  trim, NOP-04 alarm acknowledgement. Conditions are data, never `eval`; every
+  action key is checked with `check_schema` at load. `hotwell.data.builtin_procedures()`.
+- `hotwell.procedures`: `load_procedures`, `validate`, `ProcedureRunner`
+  (one procedure at a time with a FIFO queue; reaction delay fixed, default 5 s,
+  or lognormal from the `operator` stream; reads only the Observation and
+  `Simulator.loop_state()`; shift log; no casualty response).
+- `hotwell.recorder`: `ActionRecorder` logs every scenario event and submitted
+  action per tick and emits a scenario (half-tick-early stamps) that replays
+  bit-identically, including same-tick event/action collisions; `drive()`.
+- `Simulator.loop_state()`: read-only controller state.
+- `scripts/quiet_day.py --operator closed-loop` (now the default): NOP-03 every
+  300 s plus a CP swap at 06:00 and an FP swap at 18:00. `--operator fixed`
+  reproduces the M4 runs.
+
+ + tube_leak; STATE-hash-neutral, observation contract grows)
 
 - **Makeup system:** CST (atmospheric, 30 °C, unlimited) → makeup valve
   (direct command, no lag) → condenser, by vacuum drag-in
