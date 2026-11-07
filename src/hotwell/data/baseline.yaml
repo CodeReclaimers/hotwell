@@ -118,6 +118,15 @@ network:
   cv_frv: 0.1495          # kg/(s*Pa^0.5) — feed reg valve (x~0.55 at rated,
                           # ~120 kg/s capacity at x=1 with the flat pump)
 
+sensors:
+  # 0.4.0 (plan M3): per-instrument measurement noise, instrument units.
+  # {sigma: stationary std, tau: AR(1) correlation time [s], 0 = white}.
+  # Empty = no noise (bit-identical to 0.3-style sensing). Example:
+  #   noise:
+  #     drum_level: {sigma: 0.002, tau: 0.0}
+  #     feed_flow:  {sigma: 0.3,   tau: 2.0}
+  noise: {}
+
 safety_valve:
   p_open: 8.6e+6          # Pa
   p_reseat: 8.3e+6        # Pa

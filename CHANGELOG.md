@@ -28,7 +28,28 @@
   `ValueError`.
 - `Simulator.streams`: the run's `StreamBank`. Nothing draws from it yet.
 
-### Changed (M2 — **PHYSICS CHANGE: every trajectory shifts; 0.3.0 hashes and session logs no longer reproduce**)
+### Added (M3 — hash-neutral at defaults)
+
+- **Sensor noise**, config `sensors.noise.<instrument>: {sigma, tau}`
+  (instrument units; `tau = 0` white, `tau > 0` exact AR(1)/OU, started
+  stationary). Empty by default (baseline adds an empty `sensors.noise: {}`).
+- **Sensor fault kinds** `drift` (`rate`, optional `max_bias`), `lag`
+  (`tau_s`, starts at the current truth, no jump), `noise_increase`
+  (`factor`); `stuck` and `bias` unchanged. Pipeline order: truth → lag →
+  bias/drift → noise → stuck → clamp → quantize. At most one fault per
+  instrument.
+- **Draw contract (I2)**: every instrument draws one standard normal from
+  `sensor.<instrument>` on every `step()`, whatever its sigma, fault or the
+  plant state; `SensorBank.last_draws` exposes them. The steady-state init
+  sample is noise-free and draws nothing.
+- `sensor_fault` events are validated at scenario load (target, kind,
+  required params, ranges); `SensorFault` validates itself.
+- `hotwell.historian.TRUTH_SIGNALS` (`m_peg`, `m_relief`, `q_fire`, `p_mech`)
+  and `INDICATION_SIGNALS` (I5); a test fails on any unclassified historian
+  signal.
+- `SensorBank(noise=None, streams=None, dt=0.05)`; `sample(t, truth, noisy=True)`.
+
+: every trajectory shifts; 0.3.0 hashes and session logs no longer reproduce**)
 
 - **Turbine specific work depends on drum and condenser pressure.**
   `w = eta_t · Δh_s`, the isentropic drop from saturated vapour at `p_drum`

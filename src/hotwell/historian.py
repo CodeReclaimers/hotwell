@@ -10,6 +10,21 @@ from pathlib import Path
 
 import numpy as np
 
+#: Historian signals that are plant TRUTH, not anything an operator's
+#: instruments report (0.4.0, plan invariant I5). An exporter building a
+#: dataset of "what the operator saw" must drop these mechanically.
+TRUTH_SIGNALS: frozenset[str] = frozenset({"m_peg", "m_relief", "q_fire", "p_mech"})
+
+#: Historian signals derived from discrete state that the board shows
+#: truthfully (lamps, breaker, MFT/turbine-trip, annunciator count). Note two
+#: naming/fidelity differences from `Observation.indications`:
+#: `safety_open` is the indication `safety_valve_open`, and `<pump>_mode`
+#: (stopped 0, starting 0.5, running 1, tripped -1) also separates
+#: "starting" from "stopped", which the run/trip lamps do not.
+INDICATION_SIGNALS: frozenset[str] = frozenset(
+    {"mft", "turbine_trip", "safety_open", "nonvital_connected", "breaker_closed",
+     "plant_dead", "alarm_count", "cp1_mode", "cp2_mode", "fp1_mode", "fp2_mode"})
+
 
 class Historian:
     """Records a fixed signal list every step; ring buffer + decimated store."""

@@ -80,7 +80,8 @@ class Simulator:
         self.t = 0.0
         self.y = self.plant.registry.initial_vector()
         self.disc = Discrete()
-        self.sensors = SensorBank()
+        self.sensors = SensorBank(cfg.get("sensors", {}).get("noise"),
+                                  self.streams, DT)
         self.audit_acc = AuditAccumulator()
         self.engine = ProtectionEngine(load_protection_table(protection_path))
         self.scenario = scenario
@@ -245,7 +246,11 @@ class Simulator:
             elif ev.type == "sensor_fault":
                 self.sensors.faults[p["target"]] = SensorFault(
                     kind=p["kind"], bias=float(p.get("bias", 0.0)),
-                    t_start=ev.t, t_end=float(p.get("t_end", np.inf)))
+                    t_start=ev.t, t_end=float(p.get("t_end", np.inf)),
+                    rate=float(p.get("rate", 0.0)),
+                    max_bias=float(p.get("max_bias", np.inf)),
+                    tau_s=float(p.get("tau_s", 0.0)),
+                    factor=float(p.get("factor", 1.0)))
             elif ev.type == "set_air_ingress":
                 self.disc.air_ingress = float(p["value"])
             elif ev.type == "set_load":
@@ -331,10 +336,10 @@ class Simulator:
         if self.disc.mft and all_pumps_stopped:
             self.disc.plant_dead = True
 
-    def _sample(self, aux: Aux) -> dict[str, float]:
+    def _sample(self, aux: Aux, noisy: bool = True) -> dict[str, float]:
         truth = self.plant.truth(self.t, self.y, aux, self.disc)
         truth["da_lcv_pos"] = self.commands.lcv_x
-        return self.sensors.sample(self.t, truth)
+        return self.sensors.sample(self.t, truth, noisy=noisy)
 
     def _indications(self) -> dict[str, bool | str]:
         d: dict[str, bool | str] = {}
@@ -603,7 +608,9 @@ class Simulator:
         self.control.drum_pressure.initialize(cmds.firing_cmd, aux.p_drum)
         self.control.da_level.initialize(lcv_x, aux.da_level_rel)
 
-        sensed = self._sample(aux)
+        # Noise-free and draw-free: the controllers were just initialised
+        # bumpless at these values, and the I2 draw count is per step().
+        sensed = self._sample(aux, noisy=False)
         obs = Observation(t=self.t, values=sensed, alarms=[],
                           indications=self._indications(), plant_dead=False)
         self.last_obs = obs

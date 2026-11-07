@@ -103,6 +103,23 @@ answered there). Milestone status is in `.plan-checkpoint.md`.
   Pre-existing (0.3.0 as well, not changed): the steady init's station-service
   fixed point stops within 1 kW (`simulator.py`, `< 1e3`), so the solved
   state sits +1.0e-4 kg/s / +80 W off the exact design flow.
+- **M3 complete: sensor noise, fault kinds, I5.** Hash-neutral at defaults
+  (goldens unchanged). Pipeline `truth → lag → bias/drift → noise → stuck →
+  clamp → quantize`; one fault per instrument. Measured (`tests/test_m3_sensors.py -s`):
+  white σ +0.52 % of configured (10⁴ samples); AR(1) τ = 2 s lag-1 r 0.97466
+  vs 0.97531; drift slope exact to 1e-6; lag 63.2 % after 41 steps (τ/dt = 40,
+  quantization rounds the crossing up one step). **I2 holds through a feed-pump
+  trip** (19/22 sensed instruments differ between the twins; raw draws are
+  identical). Cost: the 22 draws run every step even with noise off:
+  T11 13.4 → 13.7 s per simulated hour (+2 %); noise on all 22 instruments
+  2.38 vs 2.36 s per 600 s.
+  **For the bench repo:** export "what the operator saw" from `Observation`
+  (values + indications + alarms), or from historian signals minus
+  `TRUTH_SIGNALS`. Two historian quirks are documented on
+  `INDICATION_SIGNALS`: `safety_open` ≡ indication `safety_valve_open`, and
+  `<pump>_mode` separates *starting* from *stopped*, which the lamps don't.
+  Noise is a config (plant) property, not a scenario property, so item
+  generators set it through the config dict.
 
 ## 0.3.0 — station-service pump loads (2026-08-29)
 
